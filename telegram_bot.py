@@ -19,7 +19,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"Start command received from user {user.id}")
         await update.message.reply_text(
             f"Hi {user.first_name}! 👋\n\n"
-            "Welcome to the Premier League Betting Predictor Bot!\n\n"
+            "Welcome to the Football Betting Predictor Bot!\n\n"
             "Available commands:\n"
             "/predictions - Get predictions for upcoming matches\n"
             "/help - Show this help message"
@@ -41,48 +41,29 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"Error in help command: {str(e)}")
         await update.message.reply_text("Sorry, something went wrong. Please try again.")
 
-def format_prediction(match_data):
-    """Format a prediction into a readable message."""
-    try:
-        predictions = match_data['predictions']
-        
-        # Format Over/Under prediction
-        over_under = predictions['over_under_2_5']
-        over_under_text = (
-            f"Over/Under 2.5: {over_under['prediction']}\n"
-            f"Expected Goals: {over_under['expected_goals']}\n"
-            f"Confidence: {over_under['confidence']:.1f}%"
-        )
-        
-        # Format BTTS prediction
-        btts = predictions['btts']
-        btts_text = (
-            f"Both Teams to Score: {btts['prediction']}\n"
-            f"Confidence: {btts['confidence']:.1f}%"
-        )
-        
-        # Format First Half prediction
-        first_half = predictions['first_half']
-        first_half_text = (
-            f"First Half Stronger Team: {first_half['prediction']}\n"
-            f"Confidence: {first_half['confidence']:.1f}%"
-        )
-        
-        # Combine all predictions
-        message = (
-            f"🏆 {match_data['match']}\n"
-            f"📅 {match_data['date']}\n\n"
-            f"📊 PREDICTIONS:\n\n"
-            f"⚽ {over_under_text}\n\n"
-            f"🎯 {btts_text}\n\n"
-            f"⏱ {first_half_text}\n"
-            f"\n-------------------\n"
-        )
-        
-        return message
-    except Exception as e:
-        logger.error(f"Error formatting prediction: {str(e)}")
-        return "Error formatting prediction data"
+def format_prediction(prediction):
+    """Format a prediction for Telegram message"""
+    match_info = prediction['match']
+    date = prediction['date']
+    league_info = prediction['league']
+    predictions = prediction['predictions']
+    
+    # Format each prediction with emojis and clear labels
+    formatted_text = (
+        f"🏆 *{league_info['name']}* ({league_info['country']})\n"
+        f"⚽ {match_info}\n"
+        f"📅 {date}\n\n"
+        f"*Predictions:*\n"
+        f"📈 Over/Under 2.5: {predictions['over_under_2_5']['prediction']}\n"
+        f"   Confidence: {predictions['over_under_2_5']['confidence']:.1f}%\n\n"
+        f"🎯 BTTS: {predictions['btts']['prediction']}\n"
+        f"   Confidence: {predictions['btts']['confidence']:.1f}%\n\n"
+        f"⏱ First Half: {predictions['first_half']['prediction']}\n"
+        f"   Confidence: {predictions['first_half']['confidence']:.1f}%\n"
+        f"{'➖' * 20}\n"
+    )
+    
+    return formatted_text
 
 async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send predictions when the command /predictions is issued."""
@@ -95,7 +76,7 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Send initial message
         status_message = await update.message.reply_text(
             "🔄 Initializing prediction system...\n"
-            "This may take a moment while I analyze the matches."
+            "This may take a moment while I analyze matches from multiple leagues."
         )
         
         try:
@@ -105,7 +86,14 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
             await status_message.edit_text(
                 "✅ System initialized\n"
-                "🔄 Fetching and analyzing matches..."
+                "🔄 Fetching and analyzing matches from:\n"
+                "• Premier League 🏴󠁧󠁢󠁥󠁮󠁧󠁿\n"
+                "• La Liga 🇪🇸\n"
+                "• Serie A 🇮🇹\n"
+                "• Bundesliga 🇩🇪\n"
+                "• Ligue 1 🇫🇷\n"
+                "• Eredivisie 🇳🇱\n"
+                "• Primeira Liga 🇵🇹"
             )
             
             # Get and analyze matches
@@ -127,17 +115,31 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "🔄 Formatting predictions..."
             )
             
-            # Format all predictions
-            formatted_predictions = []
+            # Group predictions by league
+            league_predictions = {}
             for prediction in predictions:
-                try:
-                    formatted_text = format_prediction(prediction)
-                    formatted_predictions.append(formatted_text)
-                except Exception as format_error:
-                    logger.error(f"Error formatting prediction: {str(format_error)}")
-                    continue
+                league_name = prediction['league']['name']
+                if league_name not in league_predictions:
+                    league_predictions[league_name] = []
+                league_predictions[league_name].append(prediction)
             
-            if not formatted_predictions:
+            # Format predictions by league
+            formatted_messages = []
+            for league_name, league_preds in league_predictions.items():
+                formatted_predictions = []
+                for prediction in league_preds:
+                    try:
+                        formatted_text = format_prediction(prediction)
+                        formatted_predictions.append(formatted_text)
+                    except Exception as format_error:
+                        logger.error(f"Error formatting prediction: {str(format_error)}")
+                        continue
+                
+                if formatted_predictions:
+                    league_message = "\n".join(formatted_predictions)
+                    formatted_messages.append(league_message)
+            
+            if not formatted_messages:
                 await status_message.edit_text(
                     "❌ Error formatting predictions.\n"
                     "This might be due to unexpected data format.\n"
@@ -145,14 +147,23 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 return
             
-            # Split predictions into chunks if too long
-            message = "🎯 *Premier League Predictions*\n\n" + "\n".join(formatted_predictions)
-            
             # Delete status message
             await status_message.delete()
             
-            # Send predictions
-            await update.message.reply_text(message, parse_mode='Markdown')
+            # Send predictions in chunks if needed
+            intro_message = "🎯 *Football Predictions*\n\n"
+            current_message = intro_message
+            
+            for message in formatted_messages:
+                if len(current_message + message) > 4000:  # Telegram message limit
+                    await update.message.reply_text(current_message, parse_mode='Markdown')
+                    current_message = message
+                else:
+                    current_message += message
+            
+            if current_message:
+                await update.message.reply_text(current_message, parse_mode='Markdown')
+                
             logger.info("Successfully sent predictions")
             
         except ValueError as ve:

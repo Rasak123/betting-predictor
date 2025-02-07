@@ -7,6 +7,17 @@ import json
 from tqdm import tqdm
 
 class BettingScraper:
+    # League IDs from API-Football
+    LEAGUES = {
+        'premier_league': {'id': 39, 'name': 'Premier League', 'country': 'England'},
+        'la_liga': {'id': 140, 'name': 'La Liga', 'country': 'Spain'},
+        'serie_a': {'id': 135, 'name': 'Serie A', 'country': 'Italy'},
+        'bundesliga': {'id': 78, 'name': 'Bundesliga', 'country': 'Germany'},
+        'ligue_1': {'id': 61, 'name': 'Ligue 1', 'country': 'France'},
+        'eredivisie': {'id': 88, 'name': 'Eredivisie', 'country': 'Netherlands'},
+        'primeira_liga': {'id': 94, 'name': 'Primeira Liga', 'country': 'Portugal'},
+    }
+
     def __init__(self):
         """Initialize the scraper with API key"""
         load_dotenv()
@@ -19,9 +30,6 @@ class BettingScraper:
             'X-RapidAPI-Key': self.api_key,
             'X-RapidAPI-Host': "api-football-v1.p.rapidapi.com"
         }
-        
-        # Premier League ID in API-Football
-        self.premier_league_id = 39
         
         # Print initialization info
         print(f"Initializing BettingScraper...")
@@ -65,8 +73,13 @@ class BettingScraper:
             print(f"Unexpected Error: {str(e)}")
             return False
 
-    def get_premier_league_matches(self):
-        """Get this week's Premier League matches"""
+    def get_matches(self, league_keys=None):
+        """Get matches for specified leagues or all leagues if none specified"""
+        if league_keys is None:
+            league_keys = self.LEAGUES.keys()
+        elif isinstance(league_keys, str):
+            league_keys = [league_keys]
+            
         # Calculate date range for this week
         today = datetime.now()
         end_date = today + timedelta(days=7)
@@ -75,74 +88,55 @@ class BettingScraper:
         from_date = today.strftime('%Y-%m-%d')
         to_date = end_date.strftime('%Y-%m-%d')
         
-        url = f"{self.base_url}/fixtures"
-        params = {
-            'league': self.premier_league_id,
-            'from': from_date,
-            'to': to_date,
-            'season': 2023  # 2023/2024 season
-        }
+        all_matches = []
         
-        try:
-            print(f"\nFetching Premier League matches:")
-            print(f"Date Range: {from_date} to {to_date}")
-            print(f"League ID: {self.premier_league_id}")
-            print(f"Season: {params['season']}")
-            
-            response = requests.get(url, headers=self.headers, params=params)
-            
-            # Handle specific API errors
-            if response.status_code == 403:
-                print("API Access Error: Your API key might be invalid or subscription inactive")
-                return []
-            elif response.status_code == 429:
-                print("Rate Limit Error: Too many requests. Please wait before trying again")
-                return []
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            if 'response' in data:
-                matches = data['response']
-                if matches:
-                    print(f"\nFound {len(matches)} matches:")
-                    for match in matches:
-                        print(f"• {match['teams']['home']['name']} vs {match['teams']['away']['name']} on {match['fixture']['date']}")
-                else:
-                    print("\nNo matches found in the response")
-                    # Let's check what leagues are available
-                    leagues_url = f"{self.base_url}/leagues"
-                    leagues_params = {
-                        'current': 'true',
-                        'season': 2023
-                    }
-                    leagues_response = requests.get(leagues_url, headers=self.headers, params=leagues_params)
-                    if leagues_response.status_code == 200:
-                        leagues_data = leagues_response.json()
-                        if 'response' in leagues_data:
-                            print("\nAvailable leagues:")
-                            for league in leagues_data['response']:
-                                if league['league']['name'] == 'Premier League':
-                                    print(f"Premier League ID: {league['league']['id']}")
-                                    print(f"Current Season: {league['seasons'][0]['year']}")
-                                    print(f"Current Round: {league['seasons'][0]['current']}")
-                return matches
-            elif 'errors' in data:
-                print(f"\nAPI Error: {data['errors']}")
-                return []
-            else:
-                print(f"\nUnexpected API response format: {data}")
-                return []
+        for league_key in league_keys:
+            if league_key not in self.LEAGUES:
+                print(f"Warning: Unknown league '{league_key}', skipping...")
+                continue
                 
-        except requests.exceptions.RequestException as e:
-            print(f"Request Error: {str(e)}")
-            return []
-        except ValueError as e:
-            print(f"JSON Parsing Error: {str(e)}")
-            return []
-        except Exception as e:
-            print(f"Unexpected Error: {str(e)}")
-            return []
+            league_info = self.LEAGUES[league_key]
+            url = f"{self.base_url}/fixtures"
+            params = {
+                'league': league_info['id'],
+                'from': from_date,
+                'to': to_date,
+                'season': 2023  # 2023/2024 season
+            }
+            
+            try:
+                print(f"\nFetching {league_info['name']} matches:")
+                print(f"Date Range: {from_date} to {to_date}")
+                print(f"League ID: {league_info['id']}")
+                
+                response = requests.get(url, headers=self.headers, params=params)
+                
+                if response.status_code == 403:
+                    print(f"API Access Error for {league_info['name']}")
+                    continue
+                elif response.status_code == 429:
+                    print(f"Rate Limit Error for {league_info['name']}")
+                    continue
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                if 'response' in data:
+                    matches = data['response']
+                    if matches:
+                        print(f"Found {len(matches)} matches in {league_info['name']}:")
+                        for match in matches:
+                            match['league_info'] = league_info  # Add league info to match data
+                            print(f"• {match['teams']['home']['name']} vs {match['teams']['away']['name']} on {match['fixture']['date']}")
+                            all_matches.append(match)
+                    else:
+                        print(f"No matches found for {league_info['name']}")
+                        
+            except Exception as e:
+                print(f"Error fetching {league_info['name']} matches: {str(e)}")
+                continue
+                
+        return all_matches
 
     def get_head_to_head(self, team1_id, team2_id):
         """Get head-to-head history between two teams"""
@@ -192,7 +186,7 @@ class BettingScraper:
         url = f"{self.base_url}/teams/statistics"
         params = {
             'team': team_id,
-            'league': self.premier_league_id,
+            'league': self.LEAGUES['premier_league']['id'],
             'season': season
         }
         
@@ -230,7 +224,7 @@ class BettingScraper:
         url = f"{self.base_url}/teams/statistics"
         params = {
             'team': team_id,
-            'league': self.premier_league_id,
+            'league': self.LEAGUES['premier_league']['id'],
             'season': 2023,
             'last': last_n_matches
         }
@@ -465,18 +459,31 @@ class BettingScraper:
             print(f"Error analyzing match: {str(e)}")
             return None
 
-    def analyze_weekend_matches(self):
-        """Analyze all Premier League matches for this week"""
-        matches = self.get_premier_league_matches()
-        if not matches:
-            return []
-
+    def analyze_weekend_matches(self, league_keys=None):
+        """Analyze matches for the specified leagues or all leagues"""
+        matches = self.get_matches(league_keys)
         predictions = []
+        
+        if not matches:
+            print("No matches found for analysis")
+            return []
+            
+        print(f"\nAnalyzing {len(matches)} matches...")
+        
         for match in tqdm(matches, desc="Analyzing matches", unit="match"):
-            prediction = self.analyze_match(match)
-            if prediction:
-                predictions.append(prediction)
-
+            try:
+                prediction = self.analyze_match(match)
+                if prediction:
+                    league_info = match['league_info']
+                    prediction['league'] = {
+                        'name': league_info['name'],
+                        'country': league_info['country']
+                    }
+                    predictions.append(prediction)
+            except Exception as e:
+                print(f"Error analyzing match: {str(e)}")
+                continue
+                
         return predictions
 
 def main():
@@ -494,7 +501,7 @@ def main():
         print("\nMatch Predictions Summary:")
         for result in results:
             prediction = result['predictions']
-            print(f"\n{result['match']} ({result['date']})")
+            print(f"\n{result['match']} ({result['date']}) in {result['league']['name']} ({result['league']['country']})")
             print(f"Over/Under 2.5: {prediction['over_under_2_5']['prediction']} (Confidence: {prediction['over_under_2_5']['confidence']:.1f}%)")
             print(f"BTTS: {prediction['btts']['prediction']} (Confidence: {prediction['btts']['confidence']:.1f}%)")
             print(f"First Half: {prediction['first_half']['prediction']} (Confidence: {prediction['first_half']['confidence']:.1f}%)")
