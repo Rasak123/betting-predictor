@@ -80,11 +80,15 @@ class BettingScraper:
             'league': self.premier_league_id,
             'from': from_date,
             'to': to_date,
-            'season': 2023  # Current season
+            'season': 2023  # 2023/2024 season
         }
         
         try:
-            print(f"Fetching matches from {from_date} to {to_date}")
+            print(f"\nFetching Premier League matches:")
+            print(f"Date Range: {from_date} to {to_date}")
+            print(f"League ID: {self.premier_league_id}")
+            print(f"Season: {params['season']}")
+            
             response = requests.get(url, headers=self.headers, params=params)
             
             # Handle specific API errors
@@ -100,13 +104,34 @@ class BettingScraper:
             
             if 'response' in data:
                 matches = data['response']
-                print(f"Found {len(matches)} matches")
+                if matches:
+                    print(f"\nFound {len(matches)} matches:")
+                    for match in matches:
+                        print(f"• {match['teams']['home']['name']} vs {match['teams']['away']['name']} on {match['fixture']['date']}")
+                else:
+                    print("\nNo matches found in the response")
+                    # Let's check what leagues are available
+                    leagues_url = f"{self.base_url}/leagues"
+                    leagues_params = {
+                        'current': 'true',
+                        'season': 2023
+                    }
+                    leagues_response = requests.get(leagues_url, headers=self.headers, params=leagues_params)
+                    if leagues_response.status_code == 200:
+                        leagues_data = leagues_response.json()
+                        if 'response' in leagues_data:
+                            print("\nAvailable leagues:")
+                            for league in leagues_data['response']:
+                                if league['league']['name'] == 'Premier League':
+                                    print(f"Premier League ID: {league['league']['id']}")
+                                    print(f"Current Season: {league['seasons'][0]['year']}")
+                                    print(f"Current Round: {league['seasons'][0]['current']}")
                 return matches
             elif 'errors' in data:
-                print(f"API Error: {data['errors']}")
+                print(f"\nAPI Error: {data['errors']}")
                 return []
             else:
-                print(f"Unexpected API response format: {data}")
+                print(f"\nUnexpected API response format: {data}")
                 return []
                 
         except requests.exceptions.RequestException as e:
