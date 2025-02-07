@@ -2,34 +2,51 @@ import requests
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-api_key = os.getenv('RAPIDAPI_KEY')
-
-# API endpoint
-url = "https://api-football-v1.p.rapidapi.com/v3/leagues"
-
-# Headers
-headers = {
-    "X-RapidAPI-Key": api_key,
-    "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
-}
-
-print("Testing API connection...")
-print(f"Using API Key: {api_key[:10]}...")  # Only show first 10 chars for security
-
-try:
-    response = requests.get(url, headers=headers)
-    print(f"\nStatus Code: {response.status_code}")
-    print(f"Response Headers: {dict(response.headers)}")
+def test_api_connection():
+    # Load environment variables
+    load_dotenv()
+    api_key = os.getenv('RAPIDAPI_KEY')
     
-    if response.status_code == 200:
-        data = response.json()
-        print("\nAPI connection successful!")
-        print(f"Results found: {len(data.get('response', []))}")
-    else:
-        print("\nAPI Error:")
-        print(response.text)
+    print(f"\nTesting API Connection...")
+    print(f"API Key present: {'Yes' if api_key else 'No'}")
+    print(f"API Key length: {len(api_key) if api_key else 0}")
+    
+    # API endpoint for status check
+    url = "https://api-football-v1.p.rapidapi.com/v3/timezone"  # Using a simple endpoint to test connection
+    
+    headers = {
+        'X-RapidAPI-Key': api_key,
+        'X-RapidAPI-Host': "api-football-v1.p.rapidapi.com"
+    }
+    
+    try:
+        print("\nMaking API request...")
+        response = requests.get(url, headers=headers)
         
-except Exception as e:
-    print(f"Error: {str(e)}")
+        print(f"\nResponse Status Code: {response.status_code}")
+        print(f"Response Headers: {dict(response.headers)}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            print("\nAPI Response Data:")
+            print(f"Account: {data.get('response', {}).get('account', {}).get('email', 'Unknown')}")
+            print(f"Requests Today: {data.get('response', {}).get('requests', {}).get('current', 'Unknown')}")
+            print(f"Requests Limit: {data.get('response', {}).get('requests', {}).get('limit_day', 'Unknown')}")
+            return True
+        elif response.status_code == 403:
+            print("\nError: Invalid API key or subscription inactive")
+            return False
+        elif response.status_code == 429:
+            print("\nError: Rate limit exceeded")
+            return False
+        else:
+            print(f"\nUnexpected status code: {response.status_code}")
+            print(f"Response content: {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"\nError testing API: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    test_api_connection()

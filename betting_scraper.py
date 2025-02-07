@@ -34,14 +34,13 @@ class BettingScraper:
 
     def _verify_api_connection(self):
         """Verify API connection and subscription status"""
-        url = f"{self.base_url}/status"
+        url = f"{self.base_url}/timezone"  # Using timezone endpoint to verify connection
         try:
             print("Verifying API connection...")
             response = requests.get(url, headers=self.headers)
             
             # Print response details for debugging
             print(f"API Status Code: {response.status_code}")
-            print(f"Response Headers: {response.headers}")
             
             if response.status_code == 403:
                 print("API Access Error: Invalid API key or subscription")
@@ -51,13 +50,10 @@ class BettingScraper:
                 return False
                 
             response.raise_for_status()
-            data = response.json()
             
-            if data.get('errors'):
-                print(f"API Errors: {data['errors']}")
-                return False
-                
+            # If we get here, the connection is good
             print("API connection verified successfully")
+            print(f"Requests remaining: {response.headers.get('X-RateLimit-requests-Remaining', 'Unknown')}")
             return True
             
         except requests.exceptions.RequestException as e:
