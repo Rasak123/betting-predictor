@@ -89,54 +89,112 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         # Log the start of prediction retrieval
         logger.info("Starting to get predictions")
+        user = update.effective_user
+        logger.info(f"User {user.id} requested predictions")
         
         # Send initial message
-        status_message = await update.message.reply_text("🔄 Analyzing matches... This may take a moment.")
+        status_message = await update.message.reply_text(
+            "🔄 Initializing prediction system...\n"
+            "This may take a moment while I analyze the matches."
+        )
         
-        # Initialize scraper
-        scraper = BettingScraper()
-        logger.info("BettingScraper initialized")
-        
-        # Get and analyze matches
-        predictions = scraper.analyze_weekend_matches()
-        logger.info(f"Retrieved {len(predictions) if predictions else 0} predictions")
-        
-        if not predictions:
-            await status_message.edit_text("No matches found for the upcoming week. Try again later.")
-            return
-            
-        # Format all predictions
-        formatted_predictions = []
-        for prediction in predictions:
-            try:
-                formatted_text = format_prediction(prediction)
-                formatted_predictions.append(formatted_text)
-            except Exception as format_error:
-                logger.error(f"Error formatting prediction: {str(format_error)}")
-                continue
-        
-        if not formatted_predictions:
-            await status_message.edit_text("Sorry, there was an error formatting the predictions. Please try again later.")
-            return
-            
-        # Split predictions into chunks if too long
-        message = "🎯 *Premier League Predictions*\n\n" + "\n".join(formatted_predictions)
-        
-        # Delete status message
-        await status_message.delete()
-        
-        # Send predictions
-        await update.message.reply_text(message, parse_mode='Markdown')
-        logger.info("Successfully sent predictions")
-        
-    except Exception as e:
-        logger.error(f"Error in get_predictions: {str(e)}", exc_info=True)
-        # If status_message exists, edit it. Otherwise send new message
         try:
-            if 'status_message' in locals():
-                await status_message.edit_text("Sorry, there was an error getting the predictions. Please try again later.")
-            else:
-                await update.message.reply_text("Sorry, there was an error getting the predictions. Please try again later.")
+            # Initialize scraper
+            scraper = BettingScraper()
+            logger.info("BettingScraper initialized")
+            
+            await status_message.edit_text(
+                "✅ System initialized\n"
+                "🔄 Fetching and analyzing matches..."
+            )
+            
+            # Get and analyze matches
+            predictions = scraper.analyze_weekend_matches()
+            logger.info(f"Retrieved {len(predictions) if predictions else 0} predictions")
+            
+            if not predictions:
+                await status_message.edit_text(
+                    "ℹ️ No matches found for the upcoming week.\n"
+                    "This could be because:\n"
+                    "• There are no scheduled matches\n"
+                    "• The API service is temporarily unavailable\n"
+                    "Please try again later."
+                )
+                return
+            
+            await status_message.edit_text(
+                f"✅ Found {len(predictions)} matches\n"
+                "🔄 Formatting predictions..."
+            )
+            
+            # Format all predictions
+            formatted_predictions = []
+            for prediction in predictions:
+                try:
+                    formatted_text = format_prediction(prediction)
+                    formatted_predictions.append(formatted_text)
+                except Exception as format_error:
+                    logger.error(f"Error formatting prediction: {str(format_error)}")
+                    continue
+            
+            if not formatted_predictions:
+                await status_message.edit_text(
+                    "❌ Error formatting predictions.\n"
+                    "This might be due to unexpected data format.\n"
+                    "The development team has been notified."
+                )
+                return
+            
+            # Split predictions into chunks if too long
+            message = "🎯 *Premier League Predictions*\n\n" + "\n".join(formatted_predictions)
+            
+            # Delete status message
+            await status_message.delete()
+            
+            # Send predictions
+            await update.message.reply_text(message, parse_mode='Markdown')
+            logger.info("Successfully sent predictions")
+            
+        except ValueError as ve:
+            error_msg = (
+                "❌ Configuration Error\n"
+                "The bot is not properly configured.\n"
+                f"Details: {str(ve)}"
+            )
+            await status_message.edit_text(error_msg)
+            logger.error(f"Configuration error: {str(ve)}")
+            
+        except ConnectionError as ce:
+            error_msg = (
+                "❌ API Connection Error\n"
+                "Could not connect to the prediction service.\n"
+                "This might be due to:\n"
+                "• Invalid API key\n"
+                "• API service is down\n"
+                "• Rate limit exceeded\n"
+                "Please try again later."
+            )
+            await status_message.edit_text(error_msg)
+            logger.error(f"Connection error: {str(ce)}")
+            
+        except Exception as e:
+            error_msg = (
+                "❌ Unexpected Error\n"
+                "An error occurred while processing your request.\n"
+                "The development team has been notified.\n"
+                "Please try again later."
+            )
+            await status_message.edit_text(error_msg)
+            logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+            
+    except Exception as e:
+        logger.error(f"Critical error in get_predictions: {str(e)}", exc_info=True)
+        try:
+            await update.message.reply_text(
+                "❌ Critical Error\n"
+                "A critical error occurred while processing your request.\n"
+                "Please try again later."
+            )
         except Exception as msg_error:
             logger.error(f"Error sending error message: {str(msg_error)}")
 

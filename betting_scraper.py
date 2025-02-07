@@ -23,30 +23,51 @@ class BettingScraper:
         # Premier League ID in API-Football
         self.premier_league_id = 39
         
+        # Print initialization info
+        print(f"Initializing BettingScraper...")
+        print(f"API Key present: {'Yes' if self.api_key else 'No'}")
+        print(f"API Key length: {len(self.api_key) if self.api_key else 0}")
+        
         # Verify API connection on initialization
-        self._verify_api_connection()
+        if not self._verify_api_connection():
+            raise ConnectionError("Failed to verify API connection. Please check your API key and internet connection.")
 
     def _verify_api_connection(self):
         """Verify API connection and subscription status"""
         url = f"{self.base_url}/status"
         try:
+            print("Verifying API connection...")
             response = requests.get(url, headers=self.headers)
-            response.raise_for_status()  # Raise an exception for bad status codes
             
-            if response.status_code == 200:
-                status_data = response.json()
-                if status_data.get('errors'):
-                    raise ValueError(f"API Error: {status_data['errors']}")
-                print("API connection verified successfully")
-                return True
+            # Print response details for debugging
+            print(f"API Status Code: {response.status_code}")
+            print(f"Response Headers: {response.headers}")
+            
+            if response.status_code == 403:
+                print("API Access Error: Invalid API key or subscription")
+                return False
+            elif response.status_code == 429:
+                print("Rate Limit Error: Too many requests")
+                return False
+                
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('errors'):
+                print(f"API Errors: {data['errors']}")
+                return False
+                
+            print("API connection verified successfully")
+            return True
             
         except requests.exceptions.RequestException as e:
-            error_msg = f"Failed to connect to API: {str(e)}"
-            if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
-                error_msg = "API rate limit exceeded. Please wait before making more requests."
-            elif isinstance(e, requests.exceptions.ConnectionError):
-                error_msg = "Could not connect to the API. Please check your internet connection."
-            raise ConnectionError(error_msg)
+            print(f"API Connection Error: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Error Response: {e.response.text}")
+            return False
+        except Exception as e:
+            print(f"Unexpected Error: {str(e)}")
+            return False
 
     def get_premier_league_matches(self):
         """Get this week's Premier League matches"""
