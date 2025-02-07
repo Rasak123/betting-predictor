@@ -5,15 +5,14 @@
 __pycache__/
 *.py[cod]
 *$py.class
-venv/
 *.so
 
 # Debug files
 debug_*.html
-*.html
 
 # Installer files
 *.exe
+python*_installer.exe
 
 # IDE
 .vscode/
@@ -23,3 +22,10 @@ debug_*.html
 *.log
 *.sqlite3
 .DS_Store
+
+# Virtual Environment
+venv/
+venv311/
+
+# Predictions output
+predictions.json
