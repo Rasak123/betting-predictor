@@ -48,12 +48,50 @@ def format_prediction(prediction):
     date = prediction['date']
     league_info = prediction['league']
     predictions = prediction['predictions']
+    h2h = prediction['head_to_head']
+    home_form = prediction['home_form']
+    away_form = prediction['away_form']
     
-    # Format each prediction with emojis and clear labels
+    # Format main match info
     formatted_text = (
         f"🏆 *{league_info['name']}* ({league_info['country']})\n"
         f"⚽ {match_info}\n"
         f"📅 {date}\n\n"
+    )
+    
+    # Format head-to-head history
+    formatted_text += "*Head-to-Head (Last 5):*\n"
+    if h2h:
+        for match in h2h:
+            formatted_text += f"• {match['date'][:10]}: {match['home_team']} {match['score']} {match['away_team']}\n"
+    else:
+        formatted_text += "No recent head-to-head matches\n"
+    formatted_text += "\n"
+    
+    # Format home team form
+    team_name = match_info.split(" vs ")[0]
+    formatted_text += f"*{team_name} Form (Last 10):*\n"
+    if home_form:
+        for match in home_form:
+            result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
+            formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
+    else:
+        formatted_text += "No recent form data available\n"
+    formatted_text += "\n"
+    
+    # Format away team form
+    team_name = match_info.split(" vs ")[1]
+    formatted_text += f"*{team_name} Form (Last 10):*\n"
+    if away_form:
+        for match in away_form:
+            result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
+            formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
+    else:
+        formatted_text += "No recent form data available\n"
+    formatted_text += "\n"
+    
+    # Format predictions
+    formatted_text += (
         f"*Predictions:*\n"
         f"📈 Over/Under 2.5: {predictions['over_under_2_5']['prediction']}\n"
         f"   Confidence: {predictions['over_under_2_5']['confidence']:.1f}%\n\n"

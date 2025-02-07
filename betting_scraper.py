@@ -212,24 +212,38 @@ class BettingScraper:
 
     def get_team_stats(self, team_id, last_n_matches=10):
         """Get team statistics from last N matches"""
-        url = f"{self.base_url}/teams/statistics"
+        url = f"{self.base_url}/fixtures"
         params = {
             'team': team_id,
-            'league': self.LEAGUES['premier_league']['id'],
-            'season': 2023,
-            'last': last_n_matches
+            'last': last_n_matches,
+            'status': 'FT'  # Only finished matches
         }
         
-        try:
-            print(f"Fetching stats for team {team_id}")
-            response_data = self._make_request(url, params)
-            if not response_data:
-                return {}
-                
-            return response_data.get('response', {})
-        except Exception as e:
-            print(f"Error fetching team stats: {str(e)}")
-            return {}
+        response_data = self._make_request(url, params)
+        if not response_data:
+            return None
+            
+        matches = response_data.get('response', [])
+        form_data = []
+        
+        for match in matches:
+            is_home = match['teams']['home']['id'] == team_id
+            team_score = match['goals']['home'] if is_home else match['goals']['away']
+            opponent_score = match['goals']['away'] if is_home else match['goals']['home']
+            opponent_name = match['teams']['away']['name'] if is_home else match['teams']['home']['name']
+            
+            result = 'W' if team_score > opponent_score else ('L' if team_score < opponent_score else 'D')
+            
+            match_data = {
+                'date': match['fixture']['date'],
+                'opponent': opponent_name,
+                'score': f"{team_score}-{opponent_score}",
+                'result': result,
+                'venue': 'Home' if is_home else 'Away'
+            }
+            form_data.append(match_data)
+            
+        return form_data
 
     def predict_match(self, h2h_data, home_team, away_team, home_stats, away_stats):
         """Make a prediction based on head-to-head history, current form, and team statistics"""
@@ -423,7 +437,10 @@ class BettingScraper:
                     'over_under_2_5': {'prediction': 'UNKNOWN', 'confidence': 0},
                     'btts': {'prediction': 'UNKNOWN', 'confidence': 0},
                     'first_half': {'prediction': 'UNKNOWN', 'confidence': 0}
-                }
+                },
+                'head_to_head': [],
+                'home_form': self.get_team_stats(match['home_team_id'], last_n_matches=10),
+                'away_form': self.get_team_stats(match['away_team_id'], last_n_matches=10)
             }
             
             # Add head-to-head analysis if available
@@ -433,16 +450,30 @@ class BettingScraper:
                     total_goals = 0
                     btts_count = 0
                     
-                    for match in h2h_matches:
+                    # Process last 5 H2H matches
+                    for match in h2h_matches[:5]:
                         home_goals = match['goals']['home'] or 0
                         away_goals = match['goals']['away'] or 0
                         total_goals += home_goals + away_goals
                         
                         if home_goals > 0 and away_goals > 0:
                             btts_count += 1
+                            
+                        # Add H2H match details
+                        h2h_match = {
+                            'date': match['fixture']['date'],
+                            'home_team': match['teams']['home']['name'],
+                            'away_team': match['teams']['away']['name'],
+                            'score': f"{home_goals}-{away_goals}",
+                            'winner': 'Draw' if home_goals == away_goals else (
+                                match['teams']['home']['name'] if home_goals > away_goals 
+                                else match['teams']['away']['name']
+                            )
+                        }
+                        analysis['head_to_head'].append(h2h_match)
                     
-                    avg_goals = total_goals / len(h2h_matches)
-                    btts_ratio = btts_count / len(h2h_matches)
+                    avg_goals = total_goals / len(h2h_matches[:5])
+                    btts_ratio = btts_count / len(h2h_matches[:5])
                     
                     # Over/Under prediction
                     analysis['predictions']['over_under_2_5'] = {
