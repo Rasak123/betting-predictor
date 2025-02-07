@@ -4,6 +4,7 @@ import time
 import os
 from dotenv import load_dotenv
 import json
+from tqdm import tqdm
 
 class BettingScraper:
     def __init__(self):
@@ -315,8 +316,9 @@ class BettingScraper:
             return
             
         results = []
-        for match in matches:
-            print(f"\nAnalyzing {match['home_team']} vs {match['away_team']} on {match['date']} at {match['time']}")
+        print("\n⚽ Analyzing matches...")
+        for match in tqdm(matches, desc="Analyzing matches", unit="match"):
+            print(f"\n📊 Analyzing {match['home_team']} vs {match['away_team']} on {match['date']} at {match['time']}")
             
             # Get head-to-head data
             h2h_data = self.get_head_to_head(match['home_team_id'], match['away_team_id'])
