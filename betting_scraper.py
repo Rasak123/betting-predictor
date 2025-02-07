@@ -67,18 +67,39 @@ class BettingScraper:
         }
         
         try:
+            print(f"Fetching matches from {from_date} to {to_date}")
             response = requests.get(url, headers=self.headers, params=params)
+            
+            # Handle specific API errors
+            if response.status_code == 403:
+                print("API Access Error: Your API key might be invalid or subscription inactive")
+                return []
+            elif response.status_code == 429:
+                print("Rate Limit Error: Too many requests. Please wait before trying again")
+                return []
+            
             response.raise_for_status()
             data = response.json()
             
             if 'response' in data:
-                return data['response']
+                matches = data['response']
+                print(f"Found {len(matches)} matches")
+                return matches
+            elif 'errors' in data:
+                print(f"API Error: {data['errors']}")
+                return []
             else:
-                print("No matches found in the response")
+                print(f"Unexpected API response format: {data}")
                 return []
                 
+        except requests.exceptions.RequestException as e:
+            print(f"Request Error: {str(e)}")
+            return []
+        except ValueError as e:
+            print(f"JSON Parsing Error: {str(e)}")
+            return []
         except Exception as e:
-            print(f"Error getting matches: {str(e)}")
+            print(f"Unexpected Error: {str(e)}")
             return []
 
     def get_head_to_head(self, team1_id, team2_id):
@@ -161,6 +182,50 @@ class BettingScraper:
         except Exception as e:
             print(f"Error fetching team statistics: {str(e)}")
             return None
+
+    def get_team_stats(self, team_id, last_n_matches=10):
+        """Get team statistics from last N matches"""
+        url = f"{self.base_url}/teams/statistics"
+        params = {
+            'team': team_id,
+            'league': self.premier_league_id,
+            'season': 2023,
+            'last': last_n_matches
+        }
+        
+        try:
+            print(f"Fetching stats for team {team_id}")
+            response = requests.get(url, headers=self.headers, params=params)
+            
+            # Handle specific API errors
+            if response.status_code == 403:
+                print("API Access Error: Your API key might be invalid or subscription inactive")
+                return {}
+            elif response.status_code == 429:
+                print("Rate Limit Error: Too many requests. Please wait before trying again")
+                return {}
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'response' in data:
+                return data['response']
+            elif 'errors' in data:
+                print(f"API Error: {data['errors']}")
+                return {}
+            else:
+                print(f"Unexpected API response format: {data}")
+                return {}
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Request Error: {str(e)}")
+            return {}
+        except ValueError as e:
+            print(f"JSON Parsing Error: {str(e)}")
+            return {}
+        except Exception as e:
+            print(f"Unexpected Error: {str(e)}")
+            return {}
 
     def predict_match(self, h2h_data, home_team, away_team, home_stats, away_stats):
         """Make a prediction based on head-to-head history, current form, and team statistics"""
@@ -269,24 +334,6 @@ class BettingScraper:
             ])
         
         return prediction
-
-    def get_team_stats(self, team_id, last_n_matches=10):
-        """Get team statistics from last N matches"""
-        url = f"{self.base_url}/teams/statistics"
-        params = {
-            'team': team_id,
-            'league': self.premier_league_id,
-            'season': 2023,
-            'last': last_n_matches
-        }
-        
-        try:
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            return response.json().get('response', {})
-        except Exception as e:
-            print(f"Error getting team stats: {str(e)}")
-            return {}
 
     def predict_over_under(self, home_stats, away_stats, threshold=2.5):
         """Predict if the match will go over/under the goal threshold"""

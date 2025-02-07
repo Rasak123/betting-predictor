@@ -87,37 +87,58 @@ def format_prediction(match_data):
 async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send predictions when the command /predictions is issued."""
     try:
-        logger.info("Predictions command received")
+        # Log the start of prediction retrieval
+        logger.info("Starting to get predictions")
         
         # Send initial message
-        message = await update.message.reply_text("🔄 Analyzing matches... Please wait.")
+        status_message = await update.message.reply_text("🔄 Analyzing matches... This may take a moment.")
         
-        # Create scraper instance
+        # Initialize scraper
         scraper = BettingScraper()
-        logger.info("Created BettingScraper instance")
+        logger.info("BettingScraper initialized")
         
-        # Get predictions
-        logger.info("Getting predictions...")
-        results = scraper.analyze_weekend_matches()
+        # Get and analyze matches
+        predictions = scraper.analyze_weekend_matches()
+        logger.info(f"Retrieved {len(predictions) if predictions else 0} predictions")
         
-        if not results:
-            logger.warning("No matches found")
-            await message.edit_text("No upcoming matches found for analysis.")
+        if not predictions:
+            await status_message.edit_text("No matches found for the upcoming week. Try again later.")
             return
-        
-        # Send each prediction as a separate message
-        await message.edit_text("🎯 Here are the predictions for upcoming matches:")
-        logger.info(f"Found {len(results)} matches")
-        
-        for match_data in results:
-            formatted_prediction = format_prediction(match_data)
-            await update.message.reply_text(formatted_prediction)
             
+        # Format all predictions
+        formatted_predictions = []
+        for prediction in predictions:
+            try:
+                formatted_text = format_prediction(prediction)
+                formatted_predictions.append(formatted_text)
+            except Exception as format_error:
+                logger.error(f"Error formatting prediction: {str(format_error)}")
+                continue
+        
+        if not formatted_predictions:
+            await status_message.edit_text("Sorry, there was an error formatting the predictions. Please try again later.")
+            return
+            
+        # Split predictions into chunks if too long
+        message = "🎯 *Premier League Predictions*\n\n" + "\n".join(formatted_predictions)
+        
+        # Delete status message
+        await status_message.delete()
+        
+        # Send predictions
+        await update.message.reply_text(message, parse_mode='Markdown')
+        logger.info("Successfully sent predictions")
+        
     except Exception as e:
-        logger.error(f"Error getting predictions: {str(e)}")
-        await update.message.reply_text(
-            "Sorry, there was an error getting the predictions. Please try again later."
-        )
+        logger.error(f"Error in get_predictions: {str(e)}", exc_info=True)
+        # If status_message exists, edit it. Otherwise send new message
+        try:
+            if 'status_message' in locals():
+                await status_message.edit_text("Sorry, there was an error getting the predictions. Please try again later.")
+            else:
+                await update.message.reply_text("Sorry, there was an error getting the predictions. Please try again later.")
+        except Exception as msg_error:
+            logger.error(f"Error sending error message: {str(msg_error)}")
 
 def main() -> None:
     """Start the bot."""
