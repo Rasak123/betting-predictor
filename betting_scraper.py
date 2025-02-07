@@ -413,6 +413,135 @@ class BettingScraper:
             print(f"Error in first half prediction: {str(e)}")
             return {'prediction': 'UNKNOWN', 'confidence': 0}
 
+    def calculate_form_points(self, form_data):
+        """Calculate form points from recent matches"""
+        if not form_data:
+            return 0
+            
+        points = 0
+        for match in form_data:
+            if match['result'] == 'W':
+                points += 3
+            elif match['result'] == 'D':
+                points += 1
+                
+        # Convert to a score out of 10
+        max_points = len(form_data) * 3
+        return round((points / max_points) * 10, 1)
+
+    def predict_score(self, home_form, away_form, h2h_matches):
+        """Predict match score based on form and head-to-head"""
+        try:
+            # Calculate average goals
+            home_goals = 0
+            away_goals = 0
+            h2h_home_goals = 0
+            h2h_away_goals = 0
+            
+            # Calculate from recent form
+            for match in home_form or []:
+                goals = int(match['score'].split('-')[0])
+                home_goals += goals
+            
+            for match in away_form or []:
+                goals = int(match['score'].split('-')[0])
+                away_goals += goals
+                
+            # Calculate from H2H
+            if h2h_matches:
+                for match in h2h_matches[:5]:  # Last 5 H2H matches
+                    h2h_home_goals += match['goals']['home'] or 0
+                    h2h_away_goals += match['goals']['away'] or 0
+                    
+                # Weight H2H more heavily
+                home_avg = ((home_goals / len(home_form) if home_form else 1.5) + 
+                          (2 * h2h_home_goals / len(h2h_matches[:5]) if h2h_matches else 1.5)) / 3
+                away_avg = ((away_goals / len(away_form) if away_form else 1.5) + 
+                          (2 * h2h_away_goals / len(h2h_matches[:5]) if h2h_matches else 1.5)) / 3
+            else:
+                home_avg = home_goals / len(home_form) if home_form else 1.5
+                away_avg = away_goals / len(away_form) if away_form else 1.5
+            
+            # Round to nearest 0.5 for more realistic scores
+            predicted_home = round(home_avg * 2) / 2
+            predicted_away = round(away_avg * 2) / 2
+            
+            return {
+                'home_score': int(predicted_home),
+                'away_score': int(predicted_away),
+                'confidence': min(100, round((1 - abs(predicted_home - int(predicted_home)) - 
+                                           abs(predicted_away - int(predicted_away))) * 100))
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error predicting score: {str(e)}")
+            return {'home_score': 1, 'away_score': 1, 'confidence': 0}
+
+    def predict_winner(self, home_form, away_form, h2h_matches):
+        """Predict match winner based on form and head-to-head"""
+        try:
+            # Calculate form points (out of 10)
+            home_form_points = self.calculate_form_points(home_form)
+            away_form_points = self.calculate_form_points(away_form)
+            
+            # Calculate H2H points
+            h2h_points = {'home': 0, 'away': 0}
+            if h2h_matches:
+                for match in h2h_matches[:5]:  # Last 5 H2H matches
+                    home_goals = match['goals']['home'] or 0
+                    away_goals = match['goals']['away'] or 0
+                    if home_goals > away_goals:
+                        h2h_points['home'] += 2
+                    elif away_goals > home_goals:
+                        h2h_points['away'] += 2
+                    else:
+                        h2h_points['home'] += 1
+                        h2h_points['away'] += 1
+                        
+                # Convert H2H points to score out of 10
+                max_h2h_points = len(h2h_matches[:5]) * 2
+                h2h_home_points = (h2h_points['home'] / max_h2h_points) * 10
+                h2h_away_points = (h2h_points['away'] / max_h2h_points) * 10
+                
+                # Combine form and H2H (60% form, 40% H2H)
+                home_score = (0.6 * home_form_points) + (0.4 * h2h_home_points)
+                away_score = (0.6 * away_form_points) + (0.4 * h2h_away_points)
+            else:
+                # Use only form if no H2H data
+                home_score = home_form_points
+                away_score = away_form_points
+            
+            # Calculate win probability
+            total_points = home_score + away_score
+            if total_points == 0:
+                home_prob = away_prob = 0.33
+                draw_prob = 0.34
+            else:
+                home_prob = home_score / total_points * 0.8  # 80% of probability split between teams
+                away_prob = away_score / total_points * 0.8
+                draw_prob = 0.2  # 20% chance of draw
+                
+            # Determine prediction
+            probs = [
+                ('HOME', home_prob),
+                ('DRAW', draw_prob),
+                ('AWAY', away_prob)
+            ]
+            prediction = max(probs, key=lambda x: x[1])
+            
+            return {
+                'prediction': prediction[0],
+                'probabilities': {
+                    'home': round(home_prob * 100, 1),
+                    'draw': round(draw_prob * 100, 1),
+                    'away': round(away_prob * 100, 1)
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error predicting winner: {str(e)}")
+            return {'prediction': 'UNKNOWN', 'probabilities': {'home': 0, 'draw': 0, 'away': 0}}
+
     def analyze_match(self, match, h2h_data=None):
         """
         Analyze a match and provide predictions
@@ -425,6 +554,10 @@ class BettingScraper:
         try:
             home_team = match['home_team']
             away_team = match['away_team']
+            
+            # Get team forms
+            home_form = self.get_team_stats(match['home_team_id'], last_n_matches=10)
+            away_form = self.get_team_stats(match['away_team_id'], last_n_matches=10)
             
             analysis = {
                 'match': f"{home_team} vs {away_team}",
@@ -439,8 +572,8 @@ class BettingScraper:
                     'first_half': {'prediction': 'UNKNOWN', 'confidence': 0}
                 },
                 'head_to_head': [],
-                'home_form': self.get_team_stats(match['home_team_id'], last_n_matches=10),
-                'away_form': self.get_team_stats(match['away_team_id'], last_n_matches=10)
+                'home_form': home_form,
+                'away_form': away_form
             }
             
             # Add head-to-head analysis if available
@@ -486,6 +619,14 @@ class BettingScraper:
                         'prediction': 'YES' if btts_ratio > 0.5 else 'NO',
                         'confidence': round(abs(btts_ratio - 0.5) * 200, 1)
                     }
+                    
+                    # Add match outcome prediction
+                    winner_prediction = self.predict_winner(home_form, away_form, h2h_matches)
+                    analysis['predictions']['match_outcome'] = winner_prediction
+                    
+                    # Add score prediction
+                    score_prediction = self.predict_score(home_form, away_form, h2h_matches)
+                    analysis['predictions']['score'] = score_prediction
             
             return analysis
             
@@ -547,6 +688,8 @@ def main():
             print(f"Over/Under 2.5: {predictions['over_under_2_5']['prediction']} (Confidence: {predictions['over_under_2_5']['confidence']:.1f}%)")
             print(f"BTTS: {predictions['btts']['prediction']} (Confidence: {predictions['btts']['confidence']:.1f}%)")
             print(f"First Half: {predictions['first_half']['prediction']} (Confidence: {predictions['first_half']['confidence']:.1f}%)")
+            print(f"Match Outcome: {predictions['match_outcome']['prediction']} (Confidence: {predictions['match_outcome']['probabilities'][predictions['match_outcome']['prediction'].lower()]:.1f}%)")
+            print(f"Score: {predictions['score']['home_score']}-{predictions['score']['away_score']} (Confidence: {predictions['score']['confidence']:.1f}%)")
 
 if __name__ == "__main__":
     main()

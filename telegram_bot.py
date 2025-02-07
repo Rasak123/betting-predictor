@@ -90,9 +90,23 @@ def format_prediction(prediction):
         formatted_text += "No recent form data available\n"
     formatted_text += "\n"
     
-    # Format predictions
+    # Format match outcome and score predictions
+    if 'match_outcome' in predictions and 'score' in predictions:
+        outcome = predictions['match_outcome']
+        score = predictions['score']
+        formatted_text += (
+            f"*Match Prediction:*\n"
+            f"🎯 Predicted Winner: {outcome['prediction']}\n"
+            f"   Home Win: {outcome['probabilities']['home']}%\n"
+            f"   Draw: {outcome['probabilities']['draw']}%\n"
+            f"   Away Win: {outcome['probabilities']['away']}%\n\n"
+            f"📊 Predicted Score: {score['home_score']}-{score['away_score']}\n"
+            f"   Confidence: {score['confidence']}%\n\n"
+        )
+    
+    # Format other predictions
     formatted_text += (
-        f"*Predictions:*\n"
+        f"*Other Predictions:*\n"
         f"📈 Over/Under 2.5: {predictions['over_under_2_5']['prediction']}\n"
         f"   Confidence: {predictions['over_under_2_5']['confidence']:.1f}%\n\n"
         f"🎯 BTTS: {predictions['btts']['prediction']}\n"
