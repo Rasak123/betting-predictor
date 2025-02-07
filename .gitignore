@@ -1,0 +1,25 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+*.so
+
+# Debug files
+debug_*.html
+*.html
+
+# Installer files
+*.exe
+
+# IDE
+.vscode/
+.idea/
+
+# Local development
+*.log
+*.sqlite3
+.DS_Store
