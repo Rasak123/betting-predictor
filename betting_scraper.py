@@ -12,7 +12,7 @@ class BettingScraper:
         load_dotenv()
         self.api_key = os.getenv('RAPIDAPI_KEY')
         if not self.api_key:
-            raise ValueError("Please set RAPIDAPI_KEY in your .env file")
+            raise ValueError("RAPIDAPI_KEY environment variable is not set. Please configure it in your environment variables.")
             
         self.base_url = "https://api-football-v1.p.rapidapi.com/v3"
         self.headers = {
@@ -23,30 +23,30 @@ class BettingScraper:
         # Premier League ID in API-Football
         self.premier_league_id = 39
         
-        print(f"Initialized with API key: {self.api_key[:10]}...")
+        # Verify API connection on initialization
+        self._verify_api_connection()
 
     def _verify_api_connection(self):
         """Verify API connection and subscription status"""
         url = f"{self.base_url}/status"
         try:
-            print("Verifying API connection...")
             response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
-            data = response.json()
+            response.raise_for_status()  # Raise an exception for bad status codes
             
-            if data.get('response', {}):
-                print(f"API Status: Active")
-                print(f"Account: {data['response'].get('account', {}).get('email', 'Unknown')}")
-                print(f"Requests remaining today: {data['response'].get('requests', {}).get('current', 'Unknown')}")
-            else:
-                print("Could not verify API status")
-                if 'response' in locals():
-                    print(f"Response content: {response.text}")
-                
-        except Exception as e:
-            print(f"Error verifying API status: {str(e)}")
-            if 'response' in locals():
-                print(f"Response content: {response.text}")
+            if response.status_code == 200:
+                status_data = response.json()
+                if status_data.get('errors'):
+                    raise ValueError(f"API Error: {status_data['errors']}")
+                print("API connection verified successfully")
+                return True
+            
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Failed to connect to API: {str(e)}"
+            if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+                error_msg = "API rate limit exceeded. Please wait before making more requests."
+            elif isinstance(e, requests.exceptions.ConnectionError):
+                error_msg = "Could not connect to the API. Please check your internet connection."
+            raise ConnectionError(error_msg)
 
     def get_premier_league_matches(self):
         """Get this week's Premier League matches"""
@@ -308,6 +308,112 @@ class BettingScraper:
         
         return prediction
 
+    def get_team_stats(self, team_id, last_n_matches=10):
+        """Get team statistics from last N matches"""
+        url = f"{self.base_url}/teams/statistics"
+        params = {
+            'team': team_id,
+            'league': self.premier_league_id,
+            'season': 2023,
+            'last': last_n_matches
+        }
+        
+        try:
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            return response.json().get('response', {})
+        except Exception as e:
+            print(f"Error getting team stats: {str(e)}")
+            return {}
+
+    def predict_over_under(self, home_stats, away_stats, threshold=2.5):
+        """Predict if the match will go over/under the goal threshold"""
+        try:
+            # Calculate average goals
+            home_scored = float(home_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', 0))
+            home_conceded = float(home_stats.get('goals', {}).get('against', {}).get('average', {}).get('total', 0))
+            away_scored = float(away_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', 0))
+            away_conceded = float(away_stats.get('goals', {}).get('against', {}).get('average', {}).get('total', 0))
+            
+            # Predicted goals for this match
+            expected_goals = (home_scored + away_conceded + away_scored + home_conceded) / 2
+            
+            return {
+                'prediction': 'OVER' if expected_goals > threshold else 'UNDER',
+                'confidence': abs(expected_goals - threshold) / threshold * 100,
+                'expected_goals': round(expected_goals, 2)
+            }
+        except Exception as e:
+            print(f"Error in over/under prediction: {str(e)}")
+            return {'prediction': 'UNKNOWN', 'confidence': 0, 'expected_goals': 0}
+
+    def predict_btts(self, home_stats, away_stats):
+        """Predict if both teams will score"""
+        try:
+            # Get BTTS percentages from recent matches
+            home_btts = float(home_stats.get('goals', {}).get('both_teams_score', {}).get('percentage', 0))
+            away_btts = float(away_stats.get('goals', {}).get('both_teams_score', {}).get('percentage', 0))
+            
+            # Average BTTS probability
+            btts_probability = (home_btts + away_btts) / 2
+            
+            return {
+                'prediction': 'YES' if btts_probability > 50 else 'NO',
+                'confidence': btts_probability if btts_probability > 50 else 100 - btts_probability
+            }
+        except Exception as e:
+            print(f"Error in BTTS prediction: {str(e)}")
+            return {'prediction': 'UNKNOWN', 'confidence': 0}
+
+    def predict_first_half(self, home_stats, away_stats):
+        """Predict first half result"""
+        try:
+            # Get first half goals
+            home_first_half = float(home_stats.get('goals', {}).get('for', {}).get('minute', {}).get('0-45', {}).get('percentage', 0))
+            away_first_half = float(away_stats.get('goals', {}).get('for', {}).get('minute', {}).get('0-45', {}).get('percentage', 0))
+            
+            # Compare first half scoring tendencies
+            prediction = 'HOME' if home_first_half > away_first_half else 'AWAY'
+            confidence = abs(home_first_half - away_first_half)
+            
+            return {
+                'prediction': prediction,
+                'confidence': confidence,
+                'home_first_half_goals': home_first_half,
+                'away_first_half_goals': away_first_half
+            }
+        except Exception as e:
+            print(f"Error in first half prediction: {str(e)}")
+            return {'prediction': 'UNKNOWN', 'confidence': 0}
+
+    def analyze_match(self, match):
+        """Enhanced match analysis with additional predictions"""
+        try:
+            home_team = match['teams']['home']
+            away_team = match['teams']['away']
+            
+            # Get detailed stats for both teams
+            home_stats = self.get_team_stats(home_team['id'])
+            away_stats = self.get_team_stats(away_team['id'])
+            
+            # Generate all predictions
+            over_under = self.predict_over_under(home_stats, away_stats)
+            btts = self.predict_btts(home_stats, away_stats)
+            first_half = self.predict_first_half(home_stats, away_stats)
+            
+            return {
+                'match': f"{home_team['name']} vs {away_team['name']}",
+                'date': match['fixture']['date'],
+                'predictions': {
+                    'over_under_2_5': over_under,
+                    'btts': btts,
+                    'first_half': first_half
+                }
+            }
+        except Exception as e:
+            print(f"Error analyzing match: {str(e)}")
+            return None
+
     def analyze_weekend_matches(self):
         """Analyze all Premier League matches for this week"""
         matches = self.get_premier_league_matches()
@@ -348,7 +454,6 @@ class BettingScraper:
 
 def main():
     scraper = BettingScraper()
-    scraper._verify_api_connection()
     results = scraper.analyze_weekend_matches()
     
     if results:

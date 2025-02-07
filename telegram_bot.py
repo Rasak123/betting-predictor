@@ -44,24 +44,45 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def format_prediction(match_data):
     """Format a prediction into a readable message."""
     try:
-        prediction = match_data['prediction']
+        predictions = match_data['predictions']
         
-        message = [
-            f"🏟️ {match_data['home_team']} vs {match_data['away_team']}",
-            f"📅 {match_data['date']} {match_data['time']}",
-            f"\n🏆 Predicted Winner: {prediction['winner']}",
-            f"📊 Confidence: {prediction['confidence']:.1f}%",
-            f"⚽ Predicted Score: {prediction['predicted_score']}",
-            "\n📈 Analysis:",
-        ]
+        # Format Over/Under prediction
+        over_under = predictions['over_under_2_5']
+        over_under_text = (
+            f"Over/Under 2.5: {over_under['prediction']}\n"
+            f"Expected Goals: {over_under['expected_goals']}\n"
+            f"Confidence: {over_under['confidence']:.1f}%"
+        )
         
-        for reason in prediction['reasoning']:
-            message.append(f"• {reason}")
+        # Format BTTS prediction
+        btts = predictions['btts']
+        btts_text = (
+            f"Both Teams to Score: {btts['prediction']}\n"
+            f"Confidence: {btts['confidence']:.1f}%"
+        )
         
-        return "\n".join(message)
+        # Format First Half prediction
+        first_half = predictions['first_half']
+        first_half_text = (
+            f"First Half Stronger Team: {first_half['prediction']}\n"
+            f"Confidence: {first_half['confidence']:.1f}%"
+        )
+        
+        # Combine all predictions
+        message = (
+            f"🏆 {match_data['match']}\n"
+            f"📅 {match_data['date']}\n\n"
+            f"📊 PREDICTIONS:\n\n"
+            f"⚽ {over_under_text}\n\n"
+            f"🎯 {btts_text}\n\n"
+            f"⏱ {first_half_text}\n"
+            f"\n-------------------\n"
+        )
+        
+        return message
     except Exception as e:
         logger.error(f"Error formatting prediction: {str(e)}")
-        return "Error formatting prediction"
+        return "Error formatting prediction data"
 
 async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send predictions when the command /predictions is issued."""
@@ -103,33 +124,41 @@ def main() -> None:
     try:
         # Load environment variables
         load_dotenv()
-        logger.info("Loaded environment variables")
-        
-        # Get bot token
         token = os.getenv('TELEGRAM_BOT_TOKEN')
+        api_key = os.getenv('RAPIDAPI_KEY')
+
+        # Validate environment variables
         if not token:
-            logger.error("TELEGRAM_BOT_TOKEN not found")
+            logger.error("TELEGRAM_BOT_TOKEN environment variable is not set")
             raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
-        
-        logger.info("Bot token found")
-        
-        # Create application
-        app = Application.builder().token(token).build()
-        logger.info("Created application")
-        
-        # Add handlers
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("predictions", get_predictions))
-        logger.info("Added command handlers")
-        
+        if not api_key:
+            logger.error("RAPIDAPI_KEY environment variable is not set")
+            raise ValueError("RAPIDAPI_KEY environment variable is not set")
+
+        logger.info("Starting bot with configuration:")
+        logger.info(f"- TELEGRAM_BOT_TOKEN: {'*' * len(token)}")
+        logger.info(f"- RAPIDAPI_KEY: {'*' * len(api_key)}")
+
+        # Create the Application and pass it your bot's token
+        application = Application.builder().token(token).build()
+
+        # Add command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("predictions", get_predictions))
+
+        # Log successful setup
+        logger.info("Bot handlers configured successfully")
+
         # Start the Bot
-        logger.info("Starting bot...")
-        app.run_polling()
-        logger.info("Bot is running")
-        
+        logger.info("Starting bot polling...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    except ValueError as ve:
+        logger.error(f"Configuration error: {str(ve)}")
+        raise
     except Exception as e:
-        logger.error(f"Critical error in main: {str(e)}")
+        logger.error(f"Fatal error in main: {str(e)}", exc_info=True)
         raise
 
 if __name__ == '__main__':
