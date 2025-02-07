@@ -5,17 +5,17 @@ import os
 from dotenv import load_dotenv
 import json
 from tqdm import tqdm
+import logging
 
 class BettingScraper:
-    # League IDs from API-Football
+    # Premier League configuration
     LEAGUES = {
-        'premier_league': {'id': 39, 'name': 'Premier League', 'country': 'England'},
-        'la_liga': {'id': 140, 'name': 'La Liga', 'country': 'Spain'},
-        'serie_a': {'id': 135, 'name': 'Serie A', 'country': 'Italy'},
-        'bundesliga': {'id': 78, 'name': 'Bundesliga', 'country': 'Germany'},
-        'ligue_1': {'id': 61, 'name': 'Ligue 1', 'country': 'France'},
-        'eredivisie': {'id': 88, 'name': 'Eredivisie', 'country': 'Netherlands'},
-        'primeira_liga': {'id': 94, 'name': 'Primeira Liga', 'country': 'Portugal'},
+        'premier_league': {
+            'id': 39,  # Premier League ID
+            'name': 'Premier League',
+            'country': 'England',
+            'season': 2024
+        }
     }
 
     def __init__(self):
@@ -39,6 +39,8 @@ class BettingScraper:
         # Verify API connection on initialization
         if not self._verify_api_connection():
             raise ConnectionError("Failed to verify API connection. Please check your API key and internet connection.")
+
+        self.logger = logging.getLogger(__name__)
 
     def _verify_api_connection(self):
         """Verify API connection and subscription status"""
@@ -73,102 +75,89 @@ class BettingScraper:
             print(f"Unexpected Error: {str(e)}")
             return False
 
-    def get_matches(self, league_keys=None):
-        """Get matches for specified leagues or all leagues if none specified"""
-        if league_keys is None:
-            league_keys = self.LEAGUES.keys()
-        elif isinstance(league_keys, str):
-            league_keys = [league_keys]
-            
-        # Calculate date range for this week
-        today = datetime.now()
-        end_date = today + timedelta(days=7)
+    def _make_request(self, url, params=None, max_retries=3):
+        """Make an API request with retries"""
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=self.headers, params=params)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:  # Last attempt
+                    self.logger.error(f"Failed to make request after {max_retries} attempts: {str(e)}")
+                    raise
+                self.logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                time.sleep(1)  # Wait before retrying
+
+    def get_matches(self, league_keys, days_ahead=7):
+        """
+        Get matches for the specified leagues for the next N days
+        Args:
+            league_keys (list): List of league keys to get matches for
+            days_ahead (int): Number of days ahead to get matches for, defaults to 7
+        Returns:
+            list: List of matches
+        """
+        self.logger.info(f"Getting matches for leagues: {league_keys} for next {days_ahead} days")
         
-        # Format dates for API
+        if not isinstance(days_ahead, int) or days_ahead < 1:
+            days_ahead = 7  # Default to 7 days if invalid value provided
+            self.logger.warning(f"Invalid days_ahead value, using default: {days_ahead}")
+            
+        today = datetime.now()
+        end_date = today + timedelta(days=days_ahead)
         from_date = today.strftime('%Y-%m-%d')
         to_date = end_date.strftime('%Y-%m-%d')
         
-        all_matches = []
-        seasons_to_try = [2023, 2024]  # Try both seasons
+        self.logger.info(f"Date range: {from_date} to {to_date}")
         
+        all_matches = []
         for league_key in league_keys:
-            if league_key not in self.LEAGUES:
-                print(f"Warning: Unknown league '{league_key}', skipping...")
-                continue
+            try:
+                league_info = self.LEAGUES.get(league_key)
+                if not league_info:
+                    self.logger.error(f"Invalid league key: {league_key}")
+                    continue
                 
-            league_info = self.LEAGUES[league_key]
-            url = f"{self.base_url}/fixtures"
-            
-            for season in seasons_to_try:
+                self.logger.info(f"Fetching matches for league {league_key} (ID: {league_info['id']})")
+                
+                url = f"{self.base_url}/fixtures"
                 params = {
                     'league': league_info['id'],
                     'from': from_date,
                     'to': to_date,
-                    'season': season
+                    'season': league_info['season']
                 }
                 
-                try:
-                    print(f"\nFetching {league_info['name']} matches (Season {season}):")
-                    print(f"URL: {url}")
-                    print(f"Parameters: {params}")
-                    print(f"Date Range: {from_date} to {to_date}")
-                    print(f"League ID: {league_info['id']}")
-                    
-                    response = requests.get(url, headers=self.headers, params=params)
-                    
-                    print(f"Response Status Code: {response.status_code}")
-                    print(f"Response Headers: {dict(response.headers)}")
-                    
-                    if response.status_code == 403:
-                        print(f"API Access Error for {league_info['name']}")
-                        print(f"Response Content: {response.text}")
-                        break  # Skip this league entirely
-                    elif response.status_code == 429:
-                        print(f"Rate Limit Error for {league_info['name']}")
-                        print(f"Response Content: {response.text}")
-                        break  # Skip this league entirely
-                    
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    if 'response' in data:
-                        matches = data['response']
-                        if matches:
-                            print(f"Found {len(matches)} matches in {league_info['name']} (Season {season}):")
-                            for match in matches:
-                                match['league_info'] = league_info  # Add league info to match data
-                                print(f"• {match['teams']['home']['name']} vs {match['teams']['away']['name']} on {match['fixture']['date']}")
-                                all_matches.append(match)
-                            break  # Found matches for this league, no need to try other season
-                        else:
-                            print(f"No matches found for {league_info['name']} (Season {season})")
-                            if season == seasons_to_try[-1]:  # Only check leagues on last season attempt
-                                # Let's check what leagues are available
-                                leagues_url = f"{self.base_url}/leagues"
-                                leagues_params = {
-                                    'current': 'true',
-                                    'season': season
-                                }
-                                print(f"\nChecking available leagues:")
-                                print(f"URL: {leagues_url}")
-                                print(f"Parameters: {leagues_params}")
-                                leagues_response = requests.get(leagues_url, headers=self.headers, params=leagues_params)
-                                if leagues_response.status_code == 200:
-                                    leagues_data = leagues_response.json()
-                                    if 'response' in leagues_data:
-                                        print("\nAvailable leagues:")
-                                        for league in leagues_data['response']:
-                                            if league['league']['name'] == league_info['name']:
-                                                print(f"Found {league_info['name']}:")
-                                                print(f"League ID: {league['league']['id']}")
-                                                print(f"Current Season: {league['seasons'][0]['year']}")
-                                                print(f"Current Round: {league['seasons'][0].get('current', 'Unknown')}")
-                    
-                except Exception as e:
-                    print(f"Error fetching {league_info['name']} matches (Season {season}): {str(e)}")
-                    print(f"Full error: {e.__class__.__name__}: {str(e)}")
+                self.logger.info(f"Fetching matches for {league_info['name']} (Season {params['season']})")
+                self.logger.debug(f"API Request - URL: {url}, Params: {params}")
+                
+                response_data = self._make_request(url, params)
+                if not response_data:
                     continue
                     
+                matches_data = response_data.get('response', [])
+                self.logger.info(f"Found {len(matches_data)} matches for {league_key}")
+                
+                for match in matches_data:
+                    match_data = {
+                        'home_team': match['teams']['home']['name'],
+                        'away_team': match['teams']['away']['name'],
+                        'home_team_id': match['teams']['home']['id'],
+                        'away_team_id': match['teams']['away']['id'],
+                        'date': match['fixture']['date'],
+                        'league': {
+                            'name': league_info['name'],
+                            'country': league_info['country']
+                        }
+                    }
+                    all_matches.append(match_data)
+                    
+            except Exception as e:
+                self.logger.error(f"Error fetching matches for {league_key}: {str(e)}")
+                continue
+                
+        self.logger.info(f"Total matches found: {len(all_matches)}")
         return all_matches
 
     def get_head_to_head(self, team1_id, team2_id):
@@ -181,37 +170,9 @@ class BettingScraper:
         
         try:
             print(f"Fetching head-to-head data between teams {team1_id} and {team2_id}")
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get('response'):
-                h2h_matches = []
-                for match in data['response']:
-                    # Determine scores relative to team1
-                    if match['teams']['home']['id'] == team1_id:
-                        team1_score = match['goals']['home'] or 0
-                        team2_score = match['goals']['away'] or 0
-                    else:
-                        team1_score = match['goals']['away'] or 0
-                        team2_score = match['goals']['home'] or 0
-                    
-                    h2h_matches.append({
-                        'date': match['fixture']['date'].split('T')[0],
-                        'score': f"{team1_score}-{team2_score}",
-                        'competition': match['league']['name']
-                    })
-                return h2h_matches
-            else:
-                print("No head-to-head matches found")
-                if 'response' in locals():
-                    print(f"Response content: {response.text}")
-                return []
-            
+            return self._make_request(url, params)
         except Exception as e:
             print(f"Error fetching head-to-head data: {str(e)}")
-            if 'response' in locals():
-                print(f"Response content: {response.text}")
             return None
 
     def get_team_statistics(self, team_id, season=2024):
@@ -225,29 +186,26 @@ class BettingScraper:
         
         try:
             print(f"Fetching statistics for team {team_id}")
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get('response'):
-                stats = data['response']
-                return {
-                    'form': stats['form'][-5:],  # Last 5 matches form
-                    'goals_scored': {
-                        'total': stats['goals']['for']['total']['total'],
-                        'average': stats['goals']['for']['average']['total']
-                    },
-                    'goals_conceded': {
-                        'total': stats['goals']['against']['total']['total'],
-                        'average': stats['goals']['against']['average']['total']
-                    },
-                    'clean_sheets': stats['clean_sheet']['total'],
-                    'failed_to_score': stats['failed_to_score']['total'],
-                    'corners': stats.get('statistics', {}).get('corners', {}).get('total', {}).get('total', 0),
-                    'fouls': stats.get('statistics', {}).get('fouls', {}).get('total', {}).get('total', 0)
-                }
-            return None
-            
+            response_data = self._make_request(url, params)
+            if not response_data:
+                return None
+                
+            stats = response_data.get('response', {})
+            return {
+                'form': stats.get('form', [])[-5:],  # Last 5 matches form
+                'goals_scored': {
+                    'total': stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0),
+                    'average': stats.get('goals', {}).get('for', {}).get('average', {}).get('total', 0)
+                },
+                'goals_conceded': {
+                    'total': stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0),
+                    'average': stats.get('goals', {}).get('against', {}).get('average', {}).get('total', 0)
+                },
+                'clean_sheets': stats.get('clean_sheet', {}).get('total', 0),
+                'failed_to_score': stats.get('failed_to_score', {}).get('total', 0),
+                'corners': stats.get('statistics', {}).get('corners', {}).get('total', {}).get('total', 0),
+                'fouls': stats.get('statistics', {}).get('fouls', {}).get('total', {}).get('total', 0)
+            }
         except Exception as e:
             print(f"Error fetching team statistics: {str(e)}")
             return None
@@ -264,36 +222,13 @@ class BettingScraper:
         
         try:
             print(f"Fetching stats for team {team_id}")
-            response = requests.get(url, headers=self.headers, params=params)
-            
-            # Handle specific API errors
-            if response.status_code == 403:
-                print("API Access Error: Your API key might be invalid or subscription inactive")
-                return {}
-            elif response.status_code == 429:
-                print("Rate Limit Error: Too many requests. Please wait before trying again")
-                return {}
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            if 'response' in data:
-                return data['response']
-            elif 'errors' in data:
-                print(f"API Error: {data['errors']}")
-                return {}
-            else:
-                print(f"Unexpected API response format: {data}")
+            response_data = self._make_request(url, params)
+            if not response_data:
                 return {}
                 
-        except requests.exceptions.RequestException as e:
-            print(f"Request Error: {str(e)}")
-            return {}
-        except ValueError as e:
-            print(f"JSON Parsing Error: {str(e)}")
-            return {}
+            return response_data.get('response', {})
         except Exception as e:
-            print(f"Unexpected Error: {str(e)}")
+            print(f"Error fetching team stats: {str(e)}")
             return {}
 
     def predict_match(self, h2h_data, home_team, away_team, home_stats, away_stats):
@@ -464,60 +399,103 @@ class BettingScraper:
             print(f"Error in first half prediction: {str(e)}")
             return {'prediction': 'UNKNOWN', 'confidence': 0}
 
-    def analyze_match(self, match):
-        """Enhanced match analysis with additional predictions"""
+    def analyze_match(self, match, h2h_data=None):
+        """
+        Analyze a match and provide predictions
+        Args:
+            match (dict): Match data including teams and fixture details
+            h2h_data (dict): Head to head data between the teams
+        Returns:
+            dict: Match analysis and prediction
+        """
         try:
-            home_team = match['teams']['home']
-            away_team = match['teams']['away']
+            home_team = match['home_team']
+            away_team = match['away_team']
             
-            # Get detailed stats for both teams
-            home_stats = self.get_team_stats(home_team['id'])
-            away_stats = self.get_team_stats(away_team['id'])
-            
-            # Generate all predictions
-            over_under = self.predict_over_under(home_stats, away_stats)
-            btts = self.predict_btts(home_stats, away_stats)
-            first_half = self.predict_first_half(home_stats, away_stats)
-            
-            return {
-                'match': f"{home_team['name']} vs {away_team['name']}",
-                'date': match['fixture']['date'],
+            analysis = {
+                'match': f"{home_team} vs {away_team}",
+                'date': match['date'],
+                'league': {
+                    'name': 'Premier League',
+                    'country': 'England'
+                },
                 'predictions': {
-                    'over_under_2_5': over_under,
-                    'btts': btts,
-                    'first_half': first_half
+                    'over_under_2_5': {'prediction': 'UNKNOWN', 'confidence': 0},
+                    'btts': {'prediction': 'UNKNOWN', 'confidence': 0},
+                    'first_half': {'prediction': 'UNKNOWN', 'confidence': 0}
                 }
             }
+            
+            # Add head-to-head analysis if available
+            if h2h_data and isinstance(h2h_data, dict) and 'response' in h2h_data:
+                h2h_matches = h2h_data['response']
+                if h2h_matches:
+                    total_goals = 0
+                    btts_count = 0
+                    
+                    for match in h2h_matches:
+                        home_goals = match['goals']['home'] or 0
+                        away_goals = match['goals']['away'] or 0
+                        total_goals += home_goals + away_goals
+                        
+                        if home_goals > 0 and away_goals > 0:
+                            btts_count += 1
+                    
+                    avg_goals = total_goals / len(h2h_matches)
+                    btts_ratio = btts_count / len(h2h_matches)
+                    
+                    # Over/Under prediction
+                    analysis['predictions']['over_under_2_5'] = {
+                        'prediction': 'OVER' if avg_goals > 2.5 else 'UNDER',
+                        'confidence': min(100, round(abs(avg_goals - 2.5) * 20, 1))
+                    }
+                    
+                    # BTTS prediction
+                    analysis['predictions']['btts'] = {
+                        'prediction': 'YES' if btts_ratio > 0.5 else 'NO',
+                        'confidence': round(abs(btts_ratio - 0.5) * 200, 1)
+                    }
+            
+            return analysis
+            
         except Exception as e:
-            print(f"Error analyzing match: {str(e)}")
+            self.logger.error(f"Error analyzing match {home_team} vs {away_team}: {str(e)}")
             return None
 
-    def analyze_weekend_matches(self, league_keys=None):
-        """Analyze matches for the specified leagues or all leagues"""
-        matches = self.get_matches(league_keys)
-        predictions = []
-        
-        if not matches:
-            print("No matches found for analysis")
-            return []
+    def analyze_weekend_matches(self):
+        """Analyze matches for the upcoming weekend across all supported leagues."""
+        try:
+            # Get all league keys from our LEAGUES dictionary
+            league_keys = list(self.LEAGUES.keys())
+            self.logger.info(f"Analyzing matches for leagues: {league_keys}")
             
-        print(f"\nAnalyzing {len(matches)} matches...")
-        
-        for match in tqdm(matches, desc="Analyzing matches", unit="match"):
-            try:
-                prediction = self.analyze_match(match)
-                if prediction:
-                    league_info = match['league_info']
-                    prediction['league'] = {
-                        'name': league_info['name'],
-                        'country': league_info['country']
-                    }
-                    predictions.append(prediction)
-            except Exception as e:
-                print(f"Error analyzing match: {str(e)}")
-                continue
-                
-        return predictions
+            # Get matches for all leagues
+            matches = self.get_matches(league_keys)
+            if not matches:
+                self.logger.warning("No matches found for the upcoming week")
+                return []
+
+            analyzed_matches = []
+            for match in matches:
+                try:
+                    # Get head to head data
+                    h2h_data = self.get_head_to_head(
+                        match['home_team_id'],
+                        match['away_team_id']
+                    )
+
+                    # Analyze the match
+                    analysis = self.analyze_match(match, h2h_data)
+                    if analysis:
+                        analyzed_matches.append(analysis)
+                except Exception as e:
+                    self.logger.error(f"Error analyzing match {match['home_team']} vs {match['away_team']}: {str(e)}")
+                    continue
+
+            return analyzed_matches
+        except Exception as e:
+            self.logger.error(f"Error in analyze_weekend_matches: {str(e)}")
+            raise
 
 def main():
     scraper = BettingScraper()
@@ -533,11 +511,11 @@ def main():
         # Print summary
         print("\nMatch Predictions Summary:")
         for result in results:
-            prediction = result['predictions']
             print(f"\n{result['match']} ({result['date']}) in {result['league']['name']} ({result['league']['country']})")
-            print(f"Over/Under 2.5: {prediction['over_under_2_5']['prediction']} (Confidence: {prediction['over_under_2_5']['confidence']:.1f}%)")
-            print(f"BTTS: {prediction['btts']['prediction']} (Confidence: {prediction['btts']['confidence']:.1f}%)")
-            print(f"First Half: {prediction['first_half']['prediction']} (Confidence: {prediction['first_half']['confidence']:.1f}%)")
+            predictions = result['predictions']
+            print(f"Over/Under 2.5: {predictions['over_under_2_5']['prediction']} (Confidence: {predictions['over_under_2_5']['confidence']:.1f}%)")
+            print(f"BTTS: {predictions['btts']['prediction']} (Confidence: {predictions['btts']['confidence']:.1f}%)")
+            print(f"First Half: {predictions['first_half']['prediction']} (Confidence: {predictions['first_half']['confidence']:.1f}%)")
 
 if __name__ == "__main__":
     main()

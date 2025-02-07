@@ -1,9 +1,10 @@
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 from betting_scraper import BettingScraper
 import os
 from dotenv import load_dotenv
+import pytz
 
 # Enable detailed logging
 logging.basicConfig(
@@ -210,43 +211,40 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error(f"Error sending error message: {str(msg_error)}")
 
 def main() -> None:
-    """Start the bot."""
+    # Load environment variables
+    load_dotenv()
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if not token:
+        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
+
+    # Configure logging
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting bot with configuration:")
+    logger.info(f"- TELEGRAM_BOT_TOKEN: {'*' * len(token)}")
+    logger.info(f"- RAPIDAPI_KEY: {'*' * len(os.getenv('RAPIDAPI_KEY', ''))}")
+
     try:
-        # Load environment variables
-        load_dotenv()
-        token = os.getenv('TELEGRAM_BOT_TOKEN')
-        api_key = os.getenv('RAPIDAPI_KEY')
+        # Build application with minimal configuration
+        builder = ApplicationBuilder()
+        builder.token(token)
+        builder.concurrent_updates(True)
+        builder.job_queue(None)  # Explicitly disable job queue
+        application = builder.build()
 
-        # Validate environment variables
-        if not token:
-            logger.error("TELEGRAM_BOT_TOKEN environment variable is not set")
-            raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
-        if not api_key:
-            logger.error("RAPIDAPI_KEY environment variable is not set")
-            raise ValueError("RAPIDAPI_KEY environment variable is not set")
-
-        logger.info("Starting bot with configuration:")
-        logger.info(f"- TELEGRAM_BOT_TOKEN: {'*' * len(token)}")
-        logger.info(f"- RAPIDAPI_KEY: {'*' * len(api_key)}")
-
-        # Create the Application and pass it your bot's token
-        application = Application.builder().token(token).build()
-
-        # Add command handlers
+        # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("predictions", get_predictions))
 
-        # Log successful setup
-        logger.info("Bot handlers configured successfully")
-
-        # Start the Bot
-        logger.info("Starting bot polling...")
+        # Start the bot
+        logger.info("Starting bot...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-    except ValueError as ve:
-        logger.error(f"Configuration error: {str(ve)}")
-        raise
     except Exception as e:
         logger.error(f"Fatal error in main: {str(e)}", exc_info=True)
         raise
