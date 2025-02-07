@@ -89,6 +89,7 @@ class BettingScraper:
         to_date = end_date.strftime('%Y-%m-%d')
         
         all_matches = []
+        seasons_to_try = [2023, 2024]  # Try both seasons
         
         for league_key in league_keys:
             if league_key not in self.LEAGUES:
@@ -97,45 +98,77 @@ class BettingScraper:
                 
             league_info = self.LEAGUES[league_key]
             url = f"{self.base_url}/fixtures"
-            params = {
-                'league': league_info['id'],
-                'from': from_date,
-                'to': to_date,
-                'season': 2023  # 2023/2024 season
-            }
             
-            try:
-                print(f"\nFetching {league_info['name']} matches:")
-                print(f"Date Range: {from_date} to {to_date}")
-                print(f"League ID: {league_info['id']}")
+            for season in seasons_to_try:
+                params = {
+                    'league': league_info['id'],
+                    'from': from_date,
+                    'to': to_date,
+                    'season': season
+                }
                 
-                response = requests.get(url, headers=self.headers, params=params)
-                
-                if response.status_code == 403:
-                    print(f"API Access Error for {league_info['name']}")
+                try:
+                    print(f"\nFetching {league_info['name']} matches (Season {season}):")
+                    print(f"URL: {url}")
+                    print(f"Parameters: {params}")
+                    print(f"Date Range: {from_date} to {to_date}")
+                    print(f"League ID: {league_info['id']}")
+                    
+                    response = requests.get(url, headers=self.headers, params=params)
+                    
+                    print(f"Response Status Code: {response.status_code}")
+                    print(f"Response Headers: {dict(response.headers)}")
+                    
+                    if response.status_code == 403:
+                        print(f"API Access Error for {league_info['name']}")
+                        print(f"Response Content: {response.text}")
+                        break  # Skip this league entirely
+                    elif response.status_code == 429:
+                        print(f"Rate Limit Error for {league_info['name']}")
+                        print(f"Response Content: {response.text}")
+                        break  # Skip this league entirely
+                    
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    if 'response' in data:
+                        matches = data['response']
+                        if matches:
+                            print(f"Found {len(matches)} matches in {league_info['name']} (Season {season}):")
+                            for match in matches:
+                                match['league_info'] = league_info  # Add league info to match data
+                                print(f"• {match['teams']['home']['name']} vs {match['teams']['away']['name']} on {match['fixture']['date']}")
+                                all_matches.append(match)
+                            break  # Found matches for this league, no need to try other season
+                        else:
+                            print(f"No matches found for {league_info['name']} (Season {season})")
+                            if season == seasons_to_try[-1]:  # Only check leagues on last season attempt
+                                # Let's check what leagues are available
+                                leagues_url = f"{self.base_url}/leagues"
+                                leagues_params = {
+                                    'current': 'true',
+                                    'season': season
+                                }
+                                print(f"\nChecking available leagues:")
+                                print(f"URL: {leagues_url}")
+                                print(f"Parameters: {leagues_params}")
+                                leagues_response = requests.get(leagues_url, headers=self.headers, params=leagues_params)
+                                if leagues_response.status_code == 200:
+                                    leagues_data = leagues_response.json()
+                                    if 'response' in leagues_data:
+                                        print("\nAvailable leagues:")
+                                        for league in leagues_data['response']:
+                                            if league['league']['name'] == league_info['name']:
+                                                print(f"Found {league_info['name']}:")
+                                                print(f"League ID: {league['league']['id']}")
+                                                print(f"Current Season: {league['seasons'][0]['year']}")
+                                                print(f"Current Round: {league['seasons'][0].get('current', 'Unknown')}")
+                    
+                except Exception as e:
+                    print(f"Error fetching {league_info['name']} matches (Season {season}): {str(e)}")
+                    print(f"Full error: {e.__class__.__name__}: {str(e)}")
                     continue
-                elif response.status_code == 429:
-                    print(f"Rate Limit Error for {league_info['name']}")
-                    continue
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                if 'response' in data:
-                    matches = data['response']
-                    if matches:
-                        print(f"Found {len(matches)} matches in {league_info['name']}:")
-                        for match in matches:
-                            match['league_info'] = league_info  # Add league info to match data
-                            print(f"• {match['teams']['home']['name']} vs {match['teams']['away']['name']} on {match['fixture']['date']}")
-                            all_matches.append(match)
-                    else:
-                        print(f"No matches found for {league_info['name']}")
-                        
-            except Exception as e:
-                print(f"Error fetching {league_info['name']} matches: {str(e)}")
-                continue
-                
+                    
         return all_matches
 
     def get_head_to_head(self, team1_id, team2_id):
