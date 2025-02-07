@@ -50,73 +50,35 @@ class BettingScraper:
 
     def get_premier_league_matches(self):
         """Get this week's Premier League matches"""
-        url = f"{self.base_url}/fixtures"
-        
-        # Calculate this week's date range
+        # Calculate date range for this week
         today = datetime.now()
-        end_date = today + timedelta(days=7)  # Look ahead 7 days
+        end_date = today + timedelta(days=7)
         
+        # Format dates for API
+        from_date = today.strftime('%Y-%m-%d')
+        to_date = end_date.strftime('%Y-%m-%d')
+        
+        url = f"{self.base_url}/fixtures"
         params = {
-            'league': '39',
-            'season': '2024',
-            'from': today.strftime('%Y-%m-%d'),
-            'to': end_date.strftime('%Y-%m-%d')
+            'league': self.premier_league_id,
+            'from': from_date,
+            'to': to_date,
+            'season': 2023  # Current season
         }
         
         try:
-            print(f"\nFetching Premier League matches from {today.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}...")
             response = requests.get(url, headers=self.headers, params=params)
-            
-            if response.status_code == 403:
-                print("\nAPI Access Error:")
-                print("Your API subscription is not active. Please check:")
-                print("1. You've subscribed to the API at: https://rapidapi.com/api-sports/api/api-football")
-                print("2. Your API key is correct in the .env file")
-                print("3. The subscription status in your RapidAPI dashboard")
-                return []
-                
-            if response.status_code == 429:
-                print("\nRate Limit Exceeded:")
-                print("You've reached the API request limit. Please try again later.")
-                return []
-                
             response.raise_for_status()
             data = response.json()
             
-            if data.get('response'):
-                matches = []
-                for match in data['response']:
-                    matches.append({
-                        'date': match['fixture']['date'].split('T')[0],
-                        'time': match['fixture']['date'].split('T')[1][:5],
-                        'home_team': match['teams']['home']['name'],
-                        'away_team': match['teams']['away']['name'],
-                        'home_team_id': match['teams']['home']['id'],
-                        'away_team_id': match['teams']['away']['id'],
-                        'league_round': match['league'].get('round', 'Unknown Round')
-                    })
-                
-                # Sort matches by date and time
-                matches.sort(key=lambda x: f"{x['date']} {x['time']}")
-                
-                if matches:
-                    print(f"\nFound {len(matches)} matches this week:")
-                    for match in matches:
-                        print(f"{match['date']} {match['time']}: {match['home_team']} vs {match['away_team']} ({match['league_round']})")
-                else:
-                    print("\nNo matches scheduled for this week")
-                
-                return matches
+            if 'response' in data:
+                return data['response']
             else:
-                print("No matches found")
-                if response.text:
-                    print(f"API Response: {response.text}")
+                print("No matches found in the response")
                 return []
-            
+                
         except Exception as e:
-            print(f"Error fetching Premier League matches: {str(e)}")
-            if 'response' in locals():
-                print(f"Response content: {response.text}")
+            print(f"Error getting matches: {str(e)}")
             return []
 
     def get_head_to_head(self, team1_id, team2_id):
@@ -418,39 +380,15 @@ class BettingScraper:
         """Analyze all Premier League matches for this week"""
         matches = self.get_premier_league_matches()
         if not matches:
-            print("No matches found for this week")
-            return
-            
-        results = []
-        print("\n⚽ Analyzing matches...")
+            return []
+
+        predictions = []
         for match in tqdm(matches, desc="Analyzing matches", unit="match"):
-            print(f"\n📊 Analyzing {match['home_team']} vs {match['away_team']} on {match['date']} at {match['time']}")
-            
-            # Get head-to-head data
-            h2h_data = self.get_head_to_head(match['home_team_id'], match['away_team_id'])
-            
-            # Get team statistics
-            home_stats = self.get_team_statistics(match['home_team_id'])
-            away_stats = self.get_team_statistics(match['away_team_id'])
-            
-            # Make prediction
-            prediction = self.predict_match(h2h_data, match['home_team'], match['away_team'], home_stats, away_stats)
-            
-            results.append({
-                'date': match['date'],
-                'time': match['time'],
-                'home_team': match['home_team'],
-                'away_team': match['away_team'],
-                'prediction': prediction,
-                'h2h_data': h2h_data,
-                'home_stats': home_stats,
-                'away_stats': away_stats
-            })
-            
-            # Be nice to the API
-            time.sleep(1)
-            
-        return results
+            prediction = self.analyze_match(match)
+            if prediction:
+                predictions.append(prediction)
+
+        return predictions
 
 def main():
     scraper = BettingScraper()
@@ -466,17 +404,11 @@ def main():
         # Print summary
         print("\nMatch Predictions Summary:")
         for result in results:
-            prediction = result['prediction']
-            print(f"\n{result['home_team']} vs {result['away_team']} ({result['date']} {result['time']})")
-            if isinstance(prediction, dict):
-                print(f"Winner: {prediction['winner']} (Confidence: {prediction['confidence']:.1f}%)")
-                print(f"Expected Goals: {result['home_team']}: {prediction['expected_goals']['home']}, {result['away_team']}: {prediction['expected_goals']['away']}")
-                print(f"Predicted Score: {prediction['predicted_score']}")
-                print("Reasoning:")
-                for reason in prediction['reasoning']:
-                    print(f"- {reason}")
-            else:
-                print(f"Prediction: {prediction}")
+            prediction = result['predictions']
+            print(f"\n{result['match']} ({result['date']})")
+            print(f"Over/Under 2.5: {prediction['over_under_2_5']['prediction']} (Confidence: {prediction['over_under_2_5']['confidence']:.1f}%)")
+            print(f"BTTS: {prediction['btts']['prediction']} (Confidence: {prediction['btts']['confidence']:.1f}%)")
+            print(f"First Half: {prediction['first_half']['prediction']} (Confidence: {prediction['first_half']['confidence']:.1f}%)")
 
 if __name__ == "__main__":
     main()
