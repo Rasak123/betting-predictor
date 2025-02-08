@@ -19,33 +19,29 @@ LEAGUES = {
 
 class BettingScraper:
     def __init__(self):
-        """Initialize the scraper with API key"""
-        # Configure logging first
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        self.logger = logging.getLogger(__name__)
-        
+        """Initialize the scraper with API credentials"""
         # Load environment variables
         load_dotenv()
-        self.api_key = os.getenv('RAPIDAPI_KEY')
+        
+        # Get API key - try both environment variable names
+        self.api_key = os.getenv('API_KEY') or os.getenv('RAPIDAPI_KEY')
         if not self.api_key:
-            raise ValueError("RAPIDAPI_KEY environment variable is not set")
+            raise ValueError("No API key found. Set either API_KEY or RAPIDAPI_KEY in your .env file")
             
         self.base_url = "https://api-football-v1.p.rapidapi.com/v3"
         self.headers = {
-            'X-RapidAPI-Key': self.api_key,
-            'X-RapidAPI-Host': "api-football-v1.p.rapidapi.com"
+            'x-rapidapi-host': "api-football-v1.p.rapidapi.com",
+            'x-rapidapi-key': self.api_key
         }
         
-        # Print initialization info
-        self.logger.info("Initializing BettingScraper...")
-        self.logger.info(f"API Key present: {'Yes' if self.api_key else 'No'}")
+        # Set up logging
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("BettingScraper initialized")
+        self.logger.info(f"API Key present and length: {len(self.api_key)}")
         
         # Verify API connection on initialization
         if not self._verify_api_connection():
-            raise ConnectionError("Failed to verify API connection")
+            raise ConnectionError("Could not verify API connection. Please check your API key and try again.")
 
     def _verify_api_connection(self):
         """Verify API connection and subscription status"""

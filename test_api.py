@@ -1,52 +1,73 @@
-import requests
 import os
+import logging
+import requests
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-def test_api_connection():
-    # Load environment variables
-    load_dotenv()
-    api_key = os.getenv('RAPIDAPI_KEY')
-    
-    print(f"\nTesting API Connection...")
-    print(f"API Key present: {'Yes' if api_key else 'No'}")
-    print(f"API Key length: {len(api_key) if api_key else 0}")
-    
-    # API endpoint for status check
-    url = "https://api-football-v1.p.rapidapi.com/v3/timezone"  # Using a simple endpoint to test connection
-    
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+API_KEY = os.getenv('API_KEY') or os.getenv('RAPIDAPI_KEY')
+if not API_KEY:
+    raise ValueError("No API key found. Set either API_KEY or RAPIDAPI_KEY in your .env file")
+
+def test_api():
+    """Test API connectivity and response"""
+    base_url = "https://api-football-v1.p.rapidapi.com/v3"
     headers = {
-        'X-RapidAPI-Key': api_key,
-        'X-RapidAPI-Host': "api-football-v1.p.rapidapi.com"
+        'x-rapidapi-host': "api-football-v1.p.rapidapi.com",
+        'x-rapidapi-key': API_KEY
     }
-    
-    try:
-        print("\nMaking API request...")
-        response = requests.get(url, headers=headers)
-        
-        print(f"\nResponse Status Code: {response.status_code}")
-        print(f"Response Headers: {dict(response.headers)}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print("\nAPI Response Data:")
-            print(f"Account: {data.get('response', {}).get('account', {}).get('email', 'Unknown')}")
-            print(f"Requests Today: {data.get('response', {}).get('requests', {}).get('current', 'Unknown')}")
-            print(f"Requests Limit: {data.get('response', {}).get('requests', {}).get('limit_day', 'Unknown')}")
-            return True
-        elif response.status_code == 403:
-            print("\nError: Invalid API key or subscription inactive")
-            return False
-        elif response.status_code == 429:
-            print("\nError: Rate limit exceeded")
-            return False
-        else:
-            print(f"\nUnexpected status code: {response.status_code}")
-            print(f"Response content: {response.text}")
-            return False
+
+    # Test endpoints
+    endpoints = {
+        'fixtures': {
+            'url': f"{base_url}/fixtures",
+            'params': {
+                'league': '39',  # Premier League
+                'season': '2024',
+                'from': datetime.now().strftime("%Y-%m-%d"),
+                'to': (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+            }
+        },
+        'teams': {
+            'url': f"{base_url}/teams",
+            'params': {
+                'league': '39',
+                'season': '2024'
+            }
+        }
+    }
+
+    for name, config in endpoints.items():
+        logger.info(f"\nTesting {name} endpoint...")
+        try:
+            response = requests.get(
+                config['url'],
+                headers=headers,
+                params=config['params']
+            )
             
-    except Exception as e:
-        print(f"\nError testing API: {str(e)}")
-        return False
+            logger.info(f"Status Code: {response.status_code}")
+            logger.info(f"Headers: {dict(response.headers)}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'response' in data:
+                    logger.info(f"Success! Found {len(data['response'])} {name}")
+                    if name == 'fixtures':
+                        for fixture in data['response'][:2]:  # Show first 2 fixtures
+                            logger.info(f"Fixture: {fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}")
+                else:
+                    logger.error(f"Invalid response format: {data}")
+            else:
+                logger.error(f"Request failed: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error testing {name}: {str(e)}")
 
 if __name__ == "__main__":
-    test_api_connection()
+    test_api()
