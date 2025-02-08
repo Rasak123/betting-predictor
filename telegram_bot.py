@@ -134,6 +134,69 @@ def format_prediction(prediction):
         logging.error(f"Error formatting prediction: {str(e)}")
         return "Error formatting prediction data"
 
+def format_prediction_message(match, analysis):
+    """Format prediction message for Telegram"""
+    if not match or not analysis:
+        return "❌ Could not analyze match. Please try again later."
+        
+    try:
+        league_name = match.get('league', 'Unknown League')
+        country = match.get('country', 'Unknown Country')
+        home_team = match.get('home_team', 'Unknown Home Team')
+        away_team = match.get('away_team', 'Unknown Away Team')
+        match_date = match.get('date', 'Unknown Date')
+        
+        home_form = analysis.get('home_form', {})
+        away_form = analysis.get('away_form', {})
+        h2h = analysis.get('h2h_stats', {})
+        predictions = analysis.get('predictions', {})
+        predicted_score = analysis.get('predicted_score', {'home': 0, 'away': 0})
+        confidence = analysis.get('confidence', 0)
+        
+        message = [
+            f"🏆 *{league_name} ({country})*",
+            f"⚽ *{home_team} vs {away_team}*",
+            f"📅 {match_date}",
+            f"\n📊 *Team Statistics*",
+            f"\n🏠 *{home_team}*",
+            f"⚽ Goals Scored (avg): {home_form.get('avg_goals_scored', 0)}",
+            f"🥅 Goals Conceded (avg): {home_form.get('avg_goals_conceded', 0)}",
+            f"🛡️ Clean Sheets: {home_form.get('clean_sheets', 0)}",
+            f"❌ Failed to Score: {home_form.get('failed_to_score', 0)}",
+            f"\n🚌 *{away_team}*",
+            f"⚽ Goals Scored (avg): {away_form.get('avg_goals_scored', 0)}",
+            f"🥅 Goals Conceded (avg): {away_form.get('avg_goals_conceded', 0)}",
+            f"🛡️ Clean Sheets: {away_form.get('clean_sheets', 0)}",
+            f"❌ Failed to Score: {away_form.get('failed_to_score', 0)}",
+            f"\n🤝 *Head to Head (Last {h2h.get('total_matches', 0)} matches)*",
+            f"🏠 Home Wins: {h2h.get('home_wins', 0)}",
+            f"🚌 Away Wins: {h2h.get('away_wins', 0)}",
+            f"🤝 Draws: {h2h.get('draws', 0)}",
+            f"\n📈 *Predictions*",
+            f"🎯 Predicted Score: {predicted_score['home']} - {predicted_score['away']}",
+            f"💪 Confidence: {confidence}%"
+        ]
+        
+        # Add additional predictions if available
+        if predictions:
+            message.append("\n📊 *Additional Predictions*")
+            over_1_5 = predictions.get('over_1_5', {})
+            over_4_5 = predictions.get('over_4_5', {})
+            home_half = predictions.get('home_win_either_half', {})
+            
+            if over_1_5:
+                message.append(f"Over 1.5 Goals: {'✅' if over_1_5.get('prediction') else '❌'} ({over_1_5.get('probability', 0)}%)")
+            if over_4_5:
+                message.append(f"Over 4.5 Goals: {'✅' if over_4_5.get('prediction') else '❌'} ({over_4_5.get('probability', 0)}%)")
+            if home_half:
+                message.append(f"Home Win Either Half: {'✅' if home_half.get('prediction') else '❌'} ({home_half.get('probability', 0)}%)")
+        
+        return "\n".join(message)
+        
+    except Exception as e:
+        logger.error(f"Error formatting prediction message: {str(e)}")
+        return "❌ Error formatting prediction message. Please try again later."
+
 async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send predictions for upcoming matches"""
     try:
@@ -155,7 +218,9 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             # Format and send each prediction
             for prediction in predictions:
                 try:
-                    formatted_text = format_prediction(prediction)
+                    match = prediction.get('match', {})
+                    analysis = prediction.get('analysis', {})
+                    formatted_text = format_prediction_message(match, analysis)
                     if len(formatted_text) > 4096:  # Telegram message limit
                         # Split message if too long
                         chunks = [formatted_text[i:i+4096] for i in range(0, len(formatted_text), 4096)]

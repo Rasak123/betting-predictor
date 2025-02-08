@@ -253,19 +253,59 @@ class BettingScraper:
             return None
 
     def get_team_statistics(self, team_id, league_id, season):
-        """Get detailed team statistics"""
-        url = f"{self.base_url}/teams/statistics"
-        params = {
-            'team': str(team_id),
-            'league': str(league_id),
-            'season': str(season)
-        }
-        
-        response = self._make_request(url, params)
-        if not response or 'response' not in response:
-            return None
+        """Get team statistics for a specific season"""
+        try:
+            url = f"{self.base_url}/teams/statistics"
+            params = {
+                'team': str(team_id),
+                'league': str(league_id),
+                'season': str(season)
+            }
             
-        return response['response']
+            self.logger.info(f"Getting team stats for team {team_id} in league {league_id} season {season}")
+            response = self._make_request(url, params)
+            
+            if not response or 'response' not in response:
+                self.logger.error(f"Invalid response for team stats: {response}")
+                return None
+                
+            stats = response['response']
+            if not stats:
+                self.logger.error("No team statistics found")
+                return None
+                
+            # Validate required fields
+            required_fields = ['goals', 'clean_sheet', 'failed_to_score']
+            for field in required_fields:
+                if field not in stats:
+                    self.logger.error(f"Missing required field in team stats: {field}")
+                    return None
+                    
+            # Validate goals data
+            goals = stats['goals']
+            if not goals or 'for' not in goals or 'against' not in goals:
+                self.logger.error("Invalid goals data in team stats")
+                return None
+                
+            # Ensure all required nested fields exist
+            for goal_type in ['for', 'against']:
+                if not all(key in goals[goal_type] for key in ['total', 'average']):
+                    self.logger.error(f"Missing goals {goal_type} data")
+                    return None
+                if not all(key in goals[goal_type]['total'] for key in ['home', 'away']):
+                    self.logger.error(f"Missing home/away goals {goal_type} data")
+                    return None
+                if not all(key in goals[goal_type]['average'] for key in ['home', 'away']):
+                    self.logger.error(f"Missing home/away average goals {goal_type} data")
+                    return None
+                    
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Error getting team statistics: {str(e)}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
 
     def get_h2h_matches(self, team1_id, team2_id, limit=20):
         """Get head-to-head match history"""
@@ -621,39 +661,52 @@ class BettingScraper:
     def analyze_match(self, match):
         """Perform deep analysis of a match"""
         try:
+            # Validate match data
+            required_match_fields = ['home_team_id', 'away_team_id', 'league_id']
+            for field in required_match_fields:
+                if field not in match:
+                    self.logger.error(f"Missing required field in match data: {field}")
+                    return None
+            
             # Get team statistics
             home_stats = self.get_team_statistics(match['home_team_id'], match['league_id'], LEAGUES['premier_league']['season'])
             away_stats = self.get_team_statistics(match['away_team_id'], match['league_id'], LEAGUES['premier_league']['season'])
             
             if not home_stats or not away_stats:
+                self.logger.error("Could not get team statistics")
                 return None
-                
-            # Get H2H history
-            h2h_matches = self.get_h2h_matches(match['home_team_id'], match['away_team_id'])
             
             # Analyze home team performance
-            home_form = {
-                'goals_scored': home_stats['goals']['for']['total']['home'],
-                'goals_conceded': home_stats['goals']['against']['total']['home'],
-                'clean_sheets': home_stats['clean_sheet']['home'],
-                'failed_to_score': home_stats['failed_to_score']['home'],
-                'avg_goals_scored': round(float(home_stats['goals']['for']['average']['home']), 2),
-                'avg_goals_conceded': round(float(home_stats['goals']['against']['average']['home']), 2)
-            }
+            try:
+                home_form = {
+                    'goals_scored': home_stats['goals']['for']['total']['home'] or 0,
+                    'goals_conceded': home_stats['goals']['against']['total']['home'] or 0,
+                    'clean_sheets': home_stats['clean_sheet']['home'] or 0,
+                    'failed_to_score': home_stats['failed_to_score']['home'] or 0,
+                    'avg_goals_scored': round(float(home_stats['goals']['for']['average']['home'] or 0), 2),
+                    'avg_goals_conceded': round(float(home_stats['goals']['against']['average']['home'] or 0), 2)
+                }
+            except (KeyError, TypeError) as e:
+                self.logger.error(f"Error processing home team stats: {str(e)}")
+                return None
             
             # Analyze away team performance
-            away_form = {
-                'goals_scored': away_stats['goals']['for']['total']['away'],
-                'goals_conceded': away_stats['goals']['against']['total']['away'],
-                'clean_sheets': away_stats['clean_sheet']['away'],
-                'failed_to_score': away_stats['failed_to_score']['away'],
-                'avg_goals_scored': round(float(away_stats['goals']['for']['average']['away']), 2),
-                'avg_goals_conceded': round(float(away_stats['goals']['against']['average']['away']), 2)
-            }
+            try:
+                away_form = {
+                    'goals_scored': away_stats['goals']['for']['total']['away'] or 0,
+                    'goals_conceded': away_stats['goals']['against']['total']['away'] or 0,
+                    'clean_sheets': away_stats['clean_sheet']['away'] or 0,
+                    'failed_to_score': away_stats['failed_to_score']['away'] or 0,
+                    'avg_goals_scored': round(float(away_stats['goals']['for']['average']['away'] or 0), 2),
+                    'avg_goals_conceded': round(float(away_stats['goals']['against']['average']['away'] or 0), 2)
+                }
+            except (KeyError, TypeError) as e:
+                self.logger.error(f"Error processing away team stats: {str(e)}")
+                return None
             
             # Analyze H2H history
             h2h_stats = {
-                'total_matches': len(h2h_matches),
+                'total_matches': 0,
                 'home_wins': 0,
                 'away_wins': 0,
                 'draws': 0,
@@ -662,40 +715,44 @@ class BettingScraper:
                 'home_won_half': 0
             }
             
-            for h2h in h2h_matches:
-                home_score = h2h['goals']['home']
-                away_score = h2h['goals']['away']
-                total_goals = home_score + away_score
-                
-                if home_score > away_score:
-                    h2h_stats['home_wins'] += 1
-                elif away_score > home_score:
-                    h2h_stats['away_wins'] += 1
-                else:
-                    h2h_stats['draws'] += 1
+            h2h_matches = self.get_h2h_matches(match['home_team_id'], match['away_team_id'])
+            if h2h_matches:
+                for h2h in h2h_matches:
+                    home_score = h2h['goals']['home']
+                    away_score = h2h['goals']['away']
+                    total_goals = home_score + away_score
                     
-                if total_goals > 1.5:
-                    h2h_stats['over_1_5'] += 1
-                if total_goals > 4.5:
-                    h2h_stats['over_4_5'] += 1
-                    
-                # Check if home team won either half
-                try:
-                    if h2h['score'] and h2h['score']['halftime'] and h2h['score']['fulltime']:
-                        ht_home = h2h['score']['halftime']['home'] or 0
-                        ht_away = h2h['score']['halftime']['away'] or 0
-                        ft_home = h2h['score']['fulltime']['home'] or 0
-                        ft_away = h2h['score']['fulltime']['away'] or 0
+                    if home_score > away_score:
+                        h2h_stats['home_wins'] += 1
+                    elif away_score > home_score:
+                        h2h_stats['away_wins'] += 1
+                    else:
+                        h2h_stats['draws'] += 1
                         
-                        # Check first half
-                        if ht_home > ht_away:
-                            h2h_stats['home_won_half'] += 1
-                        # Check second half
-                        elif (ft_home - ht_home) > (ft_away - ht_away):
-                            h2h_stats['home_won_half'] += 1
-                except (KeyError, TypeError):
-                    self.logger.warning("Missing score data in H2H match")
-                    continue
+                    if total_goals > 1.5:
+                        h2h_stats['over_1_5'] += 1
+                    if total_goals > 4.5:
+                        h2h_stats['over_4_5'] += 1
+                        
+                    # Check if home team won either half
+                    try:
+                        if h2h['score'] and h2h['score']['halftime'] and h2h['score']['fulltime']:
+                            ht_home = h2h['score']['halftime']['home'] or 0
+                            ht_away = h2h['score']['halftime']['away'] or 0
+                            ft_home = h2h['score']['fulltime']['home'] or 0
+                            ft_away = h2h['score']['fulltime']['away'] or 0
+                            
+                            # Check first half
+                            if ht_home > ht_away:
+                                h2h_stats['home_won_half'] += 1
+                            # Check second half
+                            elif (ft_home - ht_home) > (ft_away - ht_away):
+                                h2h_stats['home_won_half'] += 1
+                    except (KeyError, TypeError):
+                        self.logger.warning("Missing score data in H2H match")
+                        continue
+                
+                h2h_stats['total_matches'] = len(h2h_matches)
             
             # Calculate prediction confidence
             confidence_factors = {
