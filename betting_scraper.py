@@ -114,8 +114,8 @@ class BettingScraper:
                 
         return None
 
-    def get_matches(self, league_keys, days_ahead=30):
-        """Get matches for specified leagues"""
+    def get_matches(self, league_keys, days_ahead=7):
+        """Get matches for specified leagues for the next week"""
         matches = []
         
         try:
@@ -144,6 +144,8 @@ class BettingScraper:
                     'league': str(league['id']),
                     'season': str(league['season']),
                     'status': 'NS',  # Only get matches that haven't started
+                    'from': from_date,  # Add date range filtering
+                    'to': to_date,
                     'timezone': 'Europe/London'
                 }
                 

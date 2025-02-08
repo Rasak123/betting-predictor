@@ -35,7 +35,8 @@ def test_api():
                 'league': '39',  # Premier League
                 'season': '2024',
                 'from': datetime.now().strftime("%Y-%m-%d"),
-                'to': (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                'to': (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),
+                'status': 'NS'  # Only get matches that haven't started
             }
         },
         'teams': {
