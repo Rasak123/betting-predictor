@@ -88,7 +88,7 @@ class BettingScraper:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if 'errors' in data:
+                    if 'errors' in data and data['errors'] and len(data['errors']) > 0:
                         self.logger.error(f"API returned errors: {data['errors']}")
                         return None
                     if 'response' not in data:
@@ -114,7 +114,7 @@ class BettingScraper:
                 
         return None
 
-    def get_matches(self, league_keys, days_ahead=7):
+    def get_matches(self, league_keys, days_ahead=30):
         """Get matches for specified leagues"""
         matches = []
         
@@ -143,8 +143,7 @@ class BettingScraper:
                 params = {
                     'league': str(league['id']),
                     'season': str(league['season']),
-                    'from': from_date,
-                    'to': to_date,
+                    'status': 'NS',  # Only get matches that haven't started
                     'timezone': 'Europe/London'
                 }
                 
@@ -153,6 +152,13 @@ class BettingScraper:
                 if not response:
                     self.logger.error(f"No response received for {league['name']}")
                     continue
+                    
+                if not response.get('response'):
+                    self.logger.error(f"Empty response for {league['name']}: {response}")
+                    continue
+
+                # Log raw response for debugging
+                self.logger.info(f"Raw API response: {json.dumps(response, indent=2)}")
                 
                 # Process matches
                 league_matches = response['response']
@@ -164,9 +170,9 @@ class BettingScraper:
                         teams = match['teams']
                         league_info = match['league']
                         
-                        # Log match details
+                        # Log detailed match info
                         self.logger.info(f"Processing match: {teams['home']['name']} vs {teams['away']['name']}")
-                        self.logger.info(f"Match status: {fixture['status']['short']}")
+                        self.logger.info(f"Match status: {fixture['status']['short']} ({fixture['status']['long']})")
                         self.logger.info(f"Match date: {fixture['date']}")
                         
                         # Validate match data
