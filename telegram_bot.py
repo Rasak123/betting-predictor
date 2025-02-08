@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, ParseMode
+from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 from betting_scraper import BettingScraper
 import os
@@ -262,9 +262,9 @@ async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     if len(formatted_text) > 4096:
                         chunks = [formatted_text[i:i+4096] for i in range(0, len(formatted_text), 4096)]
                         for chunk in chunks:
-                            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+                            await update.message.reply_text(chunk, parse_mode='Markdown')
                     else:
-                        await update.message.reply_text(formatted_text, parse_mode=ParseMode.MARKDOWN)
+                        await update.message.reply_text(formatted_text, parse_mode='Markdown')
                 else:
                     logger.error("Empty prediction message")
                     
@@ -313,7 +313,7 @@ def main() -> None:
             raise
         
         # Create application and pass it bot's token
-        application = Application.builder().token(token).build()
+        application = ApplicationBuilder().token(token).build()
         
         # Add command handlers
         application.add_handler(CommandHandler("start", start))
