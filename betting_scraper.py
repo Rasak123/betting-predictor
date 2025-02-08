@@ -81,51 +81,41 @@ class BettingScraper:
             return False
 
     def _make_request(self, url, params=None, max_retries=3):
-        """Make an API request with retries and error handling"""
+        """Make API request with retries"""
         for attempt in range(max_retries):
             try:
-                self.logger.debug(f"Making API request to {url}")
-                self.logger.debug(f"Request params: {params}")
+                self.logger.info(f"Making API request to {url}")
+                self.logger.info(f"Params: {params}")
                 
                 response = requests.get(url, headers=self.headers, params=params)
+                self.logger.info(f"API Response Status: {response.status_code}")
                 
-                # Log rate limit info
-                remaining_requests = response.headers.get('x-ratelimit-remaining')
-                if remaining_requests:
-                    self.logger.info(f"Remaining API requests: {remaining_requests}")
-                
-                # Check for rate limiting
-                if response.status_code == 429:
-                    retry_after = int(response.headers.get('retry-after', 60))
-                    self.logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
-                    time.sleep(retry_after)
-                    continue
-                
-                # Check for other error status codes
-                response.raise_for_status()
-                
-                # Parse response
-                data = response.json()
-                
-                if not data.get('response'):
-                    self.logger.warning(f"Empty response from API: {data}")
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'errors' in data:
+                        self.logger.error(f"API returned errors: {data['errors']}")
+                        return None
+                    if 'response' not in data:
+                        self.logger.error(f"Invalid API response format: {data}")
+                        return None
+                    return data
+                elif response.status_code == 429:
+                    self.logger.warning("API rate limit exceeded")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                else:
+                    self.logger.error(f"API request failed with status {response.status_code}")
+                    self.logger.error(f"Response: {response.text}")
                     return None
-                
-                return data
-                
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"Request failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                continue
-            except ValueError as e:
-                self.logger.error(f"Invalid JSON response: {str(e)}")
-                return None
+                    
             except Exception as e:
-                self.logger.error(f"Unexpected error in API request: {str(e)}")
+                self.logger.error(f"API request error: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
                 return None
-        
-        self.logger.error(f"Failed to make request after {max_retries} attempts")
+                
         return None
 
     def get_matches(self, league_keys, days_ahead=7):
@@ -134,8 +124,7 @@ class BettingScraper:
         
         try:
             # Calculate date range
-            # We're in 2025 and querying the 2024/25 season
-            today = datetime.now()  # Use current date since we're in the correct season now
+            today = datetime.now()
             end_date = today + timedelta(days=days_ahead)
             
             # Format dates for API
@@ -163,19 +152,10 @@ class BettingScraper:
                     'timezone': 'Europe/London'
                 }
                 
-                # Print request details for debugging
-                self.logger.info(f"API Request - URL: {url}")
-                self.logger.info(f"API Request - Params: {params}")
-                
                 # Make API request
                 response = self._make_request(url, params)
-                
                 if not response:
                     self.logger.error(f"No response received for {league['name']}")
-                    continue
-                    
-                if 'response' not in response:
-                    self.logger.error(f"Invalid response format for {league['name']}: {response}")
                     continue
                 
                 # Process matches
@@ -188,15 +168,40 @@ class BettingScraper:
                         teams = match['teams']
                         league_info = match['league']
                         
-                        # Log match details for debugging
+                        # Log match details
                         self.logger.info(f"Processing match: {teams['home']['name']} vs {teams['away']['name']}")
                         self.logger.info(f"Match status: {fixture['status']['short']}")
                         self.logger.info(f"Match date: {fixture['date']}")
                         
-                        # When testing with past dates, treat all matches as upcoming
-                        # In production, we would use fixture['status']['short'] == 'NS'
+                        # Validate match data
+                        required_fields = {
+                            'fixture': ['id', 'date', 'timestamp', 'status'],
+                            'teams.home': ['id', 'name'],
+                            'teams.away': ['id', 'name'],
+                            'league': ['id', 'name', 'country']
+                        }
+                        
+                        valid = True
+                        for parent, fields in required_fields.items():
+                            parent_obj = match
+                            for part in parent.split('.'):
+                                parent_obj = parent_obj.get(part, {})
+                            
+                            for field in fields:
+                                if not parent_obj.get(field):
+                                    self.logger.error(f"Missing required field: {parent}.{field}")
+                                    valid = False
+                                    break
+                            
+                            if not valid:
+                                break
+                                
+                        if not valid:
+                            continue
+                        
                         match_date = datetime.strptime(fixture['date'], "%Y-%m-%dT%H:%M:%S%z")
-                        match_date = match_date.replace(tzinfo=None)  # Remove timezone for comparison
+                        match_date = match_date.replace(tzinfo=None)
+                        
                         if match_date >= today:
                             match_data = {
                                 'id': fixture['id'],
@@ -207,22 +212,21 @@ class BettingScraper:
                                 'home_team_id': teams['home']['id'],
                                 'away_team_id': teams['away']['id'],
                                 'league': league_info['name'],
-                                'league_id': league_info['id'],  # Add league ID
+                                'league_id': league_info['id'],
                                 'country': league_info['country'],
                                 'status': fixture['status']['short']
                             }
                             matches.append(match_data)
-                            self.logger.info(f"Added match: {match_data['home_team']} vs {match_data['away_team']} on {match_data['date']}")
+                            self.logger.info(f"Added match: {match_data['home_team']} vs {match_data['away_team']}")
                         else:
-                            self.logger.info(f"Skipping match - before test date")
+                            self.logger.info(f"Skipping match - before current date")
                             
-                    except KeyError as e:
-                        self.logger.error(f"Error processing match data: {str(e)}")
+                    except Exception as e:
+                        self.logger.error(f"Error processing match: {str(e)}")
                         self.logger.error(f"Match data: {match}")
                         continue
                 
-                # Add delay between requests to avoid rate limiting
-                time.sleep(1)
+                time.sleep(1)  # Rate limiting
                 
         except Exception as e:
             self.logger.error(f"Error in get_matches: {str(e)}")
@@ -230,7 +234,7 @@ class BettingScraper:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             
         if not matches:
-            self.logger.warning("No matches found for the specified date range")
+            self.logger.warning("No matches found")
             self.logger.info(f"Search parameters: dates {from_date} to {to_date}, leagues: {league_keys}")
         else:
             self.logger.info(f"Total matches found: {len(matches)}")

@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, ParseMode
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 from betting_scraper import BettingScraper
 import os
@@ -200,79 +200,81 @@ def format_prediction_message(match, analysis):
 async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send predictions for upcoming matches"""
     try:
-        # Send initial message
-        message = await update.message.reply_text("🔄 Analyzing matches... Please wait.")
+        logger.info("Starting prediction request")
+        scraper = BettingScraper()
         
-        try:
-            # Initialize scraper
-            scraper = BettingScraper()
+        # Get matches
+        matches = scraper.get_matches(['premier_league'])
+        if not matches:
+            logger.error("No matches found")
+            await update.message.reply_text("No upcoming matches found for analysis.")
+            return
             
-            # Get predictions
-            logger.info("Getting weekend match predictions")
-            predictions = scraper.analyze_weekend_matches()
-            
-            if not predictions:
-                await message.edit_text("❌ No matches found for analysis.\nThis could be because:\n1. There are no upcoming Premier League matches in the next 7 days\n2. The API data hasn't been updated yet\n\nPlease try again later.")
-                return
+        logger.info(f"Found {len(matches)} matches")
+        
+        # Process each match
+        predictions = []
+        for match in matches:
+            try:
+                logger.info(f"Analyzing match: {match.get('home_team', 'Unknown')} vs {match.get('away_team', 'Unknown')}")
                 
-            # Format and send each prediction
-            for prediction in predictions:
-                try:
-                    match = prediction.get('match', {})
-                    analysis = prediction.get('analysis', {})
-                    formatted_text = format_prediction_message(match, analysis)
-                    if len(formatted_text) > 4096:  # Telegram message limit
-                        # Split message if too long
+                # Validate match data
+                required_fields = ['home_team', 'away_team', 'home_team_id', 'away_team_id', 'league_id', 'date']
+                missing_fields = [field for field in required_fields if field not in match]
+                if missing_fields:
+                    logger.error(f"Match missing required fields: {missing_fields}")
+                    continue
+                
+                # Get match analysis
+                analysis = scraper.analyze_match(match)
+                if not analysis:
+                    logger.error(f"Failed to analyze match: {match.get('home_team')} vs {match.get('away_team')}")
+                    continue
+                
+                # Validate analysis data
+                required_analysis = ['home_form', 'away_form', 'h2h_stats', 'predictions', 'predicted_score', 'confidence']
+                missing_analysis = [field for field in required_analysis if field not in analysis]
+                if missing_analysis:
+                    logger.error(f"Analysis missing required fields: {missing_analysis}")
+                    continue
+                
+                predictions.append({
+                    'match': match,
+                    'analysis': analysis
+                })
+                logger.info(f"Successfully analyzed match: {match['home_team']} vs {match['away_team']}")
+                
+            except Exception as e:
+                logger.error(f"Error processing match: {str(e)}")
+                continue
+        
+        if not predictions:
+            logger.error("No valid predictions generated")
+            await update.message.reply_text("Could not generate predictions for any matches. Please try again later.")
+            return
+        
+        # Format and send predictions
+        for prediction in predictions:
+            try:
+                formatted_text = format_prediction_message(prediction['match'], prediction['analysis'])
+                if formatted_text:
+                    # Split message if too long
+                    if len(formatted_text) > 4096:
                         chunks = [formatted_text[i:i+4096] for i in range(0, len(formatted_text), 4096)]
                         for chunk in chunks:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=chunk,
-                                parse_mode='Markdown'
-                            )
+                            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
                     else:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=formatted_text,
-                            parse_mode='Markdown'
-                        )
-                except Exception as e:
-                    logger.error(f"Error formatting/sending prediction: {str(e)}")
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="❌ Error formatting this prediction. Skipping to next match..."
-                    )
-                    continue
+                        await update.message.reply_text(formatted_text, parse_mode=ParseMode.MARKDOWN)
+                else:
+                    logger.error("Empty prediction message")
                     
-            # Delete the "analyzing" message
-            await message.delete()
-            
-        except Exception as e:
-            logger.error(f"Error getting predictions: {str(e)}")
-            error_msg = (
-                "❌ Error getting predictions.\n\n"
-                "Possible issues:\n"
-                "1. API rate limit exceeded\n"
-                "2. Network connection problem\n"
-                "3. Invalid API key\n\n"
-                "Please try again in a few minutes."
-            )
-            await message.edit_text(error_msg)
-            
+            except Exception as e:
+                logger.error(f"Error sending prediction: {str(e)}")
+                continue
+        
     except Exception as e:
-        logger.error(f"Critical error in get_predictions: {str(e)}")
-        error_msg = (
-            "❌ A critical error occurred.\n\n"
-            "Please check:\n"
-            "1. Your API key is valid\n"
-            "2. You have sufficient API credits\n"
-            "3. The bot has proper permissions\n\n"
-            "Try again in a few minutes."
-        )
-        try:
-            await update.message.reply_text(error_msg)
-        except Exception as msg_error:
-            logger.error(f"Error sending error message: {str(msg_error)}")
+        logger.error(f"Error in get_predictions: {str(e)}")
+        await update.message.reply_text("❌ An error occurred while getting predictions. Please try again later.")
 
 def main() -> None:
     """Main function to run the bot"""
