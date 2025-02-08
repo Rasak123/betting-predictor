@@ -44,262 +44,214 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 def format_prediction(prediction):
     """Format a prediction for Telegram message"""
-    match_info = prediction['match']
-    date = prediction['date']
-    league_info = prediction['league']
-    predictions = prediction['predictions']
-    h2h = prediction['head_to_head']
-    home_form = prediction['home_form']
-    away_form = prediction['away_form']
-    
-    # Format main match info
-    formatted_text = (
-        f"🏆 *{league_info['name']}* ({league_info['country']})\n"
-        f"⚽ {match_info}\n"
-        f"📅 {date}\n\n"
-    )
-    
-    # Format head-to-head history
-    formatted_text += "*Head-to-Head (Last 5):*\n"
-    if h2h:
-        for match in h2h:
-            formatted_text += f"• {match['date'][:10]}: {match['home_team']} {match['score']} {match['away_team']}\n"
-    else:
-        formatted_text += "No recent head-to-head matches\n"
-    formatted_text += "\n"
-    
-    # Format home team form
-    team_name = match_info.split(" vs ")[0]
-    formatted_text += f"*{team_name} Form (Last 10):*\n"
-    if home_form:
-        for match in home_form:
-            result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
-            formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
-    else:
-        formatted_text += "No recent form data available\n"
-    formatted_text += "\n"
-    
-    # Format away team form
-    team_name = match_info.split(" vs ")[1]
-    formatted_text += f"*{team_name} Form (Last 10):*\n"
-    if away_form:
-        for match in away_form:
-            result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
-            formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
-    else:
-        formatted_text += "No recent form data available\n"
-    formatted_text += "\n"
-    
-    # Format match outcome and score predictions
-    if 'match_outcome' in predictions and 'score' in predictions:
-        outcome = predictions['match_outcome']
-        score = predictions['score']
-        formatted_text += (
-            f"*Match Prediction:*\n"
-            f"🎯 Predicted Winner: {outcome['prediction']}\n"
-            f"   Home Win: {outcome['probabilities']['home']}%\n"
-            f"   Draw: {outcome['probabilities']['draw']}%\n"
-            f"   Away Win: {outcome['probabilities']['away']}%\n\n"
-            f"📊 Predicted Score: {score['home_score']}-{score['away_score']}\n"
-            f"   Confidence: {score['confidence']}%\n\n"
+    try:
+        if not prediction or not isinstance(prediction, dict):
+            return "Invalid prediction data"
+            
+        match_info = prediction.get('match', 'Unknown Match')
+        date = prediction.get('date', 'Unknown Date')
+        league_info = prediction.get('league', {'name': 'Unknown League', 'country': 'Unknown Country'})
+        predictions = prediction.get('predictions', {})
+        h2h = prediction.get('head_to_head', [])
+        home_form = prediction.get('home_form', [])
+        away_form = prediction.get('away_form', [])
+        
+        # Format main match info
+        formatted_text = (
+            f"🏆 *{league_info['name']}* ({league_info['country']})\n"
+            f"⚽ {match_info}\n"
+            f"📅 {date}\n\n"
         )
-    
-    # Format other predictions
-    formatted_text += (
-        f"*Other Predictions:*\n"
-        f"📈 Over/Under 2.5: {predictions['over_under_2_5']['prediction']}\n"
-        f"   Confidence: {predictions['over_under_2_5']['confidence']:.1f}%\n\n"
-        f"🎯 BTTS: {predictions['btts']['prediction']}\n"
-        f"   Confidence: {predictions['btts']['confidence']:.1f}%\n\n"
-        f"⏱ First Half: {predictions['first_half']['prediction']}\n"
-        f"   Confidence: {predictions['first_half']['confidence']:.1f}%\n"
-        f"{'➖' * 20}\n"
-    )
-    
-    return formatted_text
+        
+        # Format head-to-head history
+        formatted_text += "*Head-to-Head (Last 5):*\n"
+        if h2h:
+            for match in h2h:
+                formatted_text += f"• {match['date'][:10]}: {match['home_team']} {match['score']} {match['away_team']}\n"
+        else:
+            formatted_text += "No recent head-to-head matches\n"
+        formatted_text += "\n"
+        
+        # Format home team form
+        team_name = match_info.split(" vs ")[0]
+        formatted_text += f"*{team_name} Form (Last 10):*\n"
+        if home_form:
+            for match in home_form:
+                result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
+                formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
+        else:
+            formatted_text += "No recent form data available\n"
+        formatted_text += "\n"
+        
+        # Format away team form
+        team_name = match_info.split(" vs ")[1]
+        formatted_text += f"*{team_name} Form (Last 10):*\n"
+        if away_form:
+            for match in away_form:
+                result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
+                formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
+        else:
+            formatted_text += "No recent form data available\n"
+        formatted_text += "\n"
+        
+        # Format match outcome and score predictions
+        match_outcome = predictions.get('match_outcome', {})
+        score = predictions.get('score', {})
+        if match_outcome and score:
+            formatted_text += (
+                f"*Match Prediction:*\n"
+                f"🎯 Predicted Winner: {match_outcome.get('prediction', 'UNKNOWN')}\n"
+                f"   Home Win: {match_outcome.get('probabilities', {}).get('home', 0)}%\n"
+                f"   Draw: {match_outcome.get('probabilities', {}).get('draw', 0)}%\n"
+                f"   Away Win: {match_outcome.get('probabilities', {}).get('away', 0)}%\n\n"
+                f"📊 Predicted Score: {score.get('home_score', 0)}-{score.get('away_score', 0)}\n"
+                f"   Confidence: {score.get('confidence', 0)}%\n\n"
+            )
+        
+        # Format other predictions
+        formatted_text += (
+            f"*Other Predictions:*\n"
+            f"📈 Over/Under 2.5: {predictions.get('over_under_2_5', {}).get('prediction', 'UNKNOWN')}\n"
+            f"   Confidence: {predictions.get('over_under_2_5', {}).get('confidence', 0):.1f}%\n\n"
+            f"🎯 BTTS: {predictions.get('btts', {}).get('prediction', 'UNKNOWN')}\n"
+            f"   Confidence: {predictions.get('btts', {}).get('confidence', 0):.1f}%\n\n"
+            f"⏱ First Half: {predictions.get('first_half', {}).get('prediction', 'UNKNOWN')}\n"
+            f"   Confidence: {predictions.get('first_half', {}).get('confidence', 0):.1f}%\n"
+            f"{'➖' * 20}\n"
+        )
+        
+        return formatted_text
+        
+    except Exception as e:
+        logging.error(f"Error formatting prediction: {str(e)}")
+        return "Error formatting prediction data"
 
 async def get_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send predictions when the command /predictions is issued."""
+    """Send predictions for upcoming matches"""
     try:
-        # Log the start of prediction retrieval
-        logger.info("Starting to get predictions")
-        user = update.effective_user
-        logger.info(f"User {user.id} requested predictions")
-        
         # Send initial message
-        status_message = await update.message.reply_text(
-            "🔄 Initializing prediction system...\n"
-            "This may take a moment while I analyze matches from multiple leagues."
-        )
+        message = await update.message.reply_text("🔄 Analyzing matches... Please wait.")
         
         try:
             # Initialize scraper
             scraper = BettingScraper()
-            logger.info("BettingScraper initialized")
             
-            await status_message.edit_text(
-                "✅ System initialized\n"
-                "🔄 Fetching and analyzing matches from:\n"
-                "• Premier League 🏴󠁧󠁢󠁥󠁮󠁧󠁿\n"
-                "• La Liga 🇪🇸\n"
-                "• Serie A 🇮🇹\n"
-                "• Bundesliga 🇩🇪\n"
-                "• Ligue 1 🇫🇷\n"
-                "• Eredivisie 🇳🇱\n"
-                "• Primeira Liga 🇵🇹"
-            )
-            
-            # Get and analyze matches
+            # Get predictions
+            logger.info("Getting weekend match predictions")
             predictions = scraper.analyze_weekend_matches()
-            logger.info(f"Retrieved {len(predictions) if predictions else 0} predictions")
             
             if not predictions:
-                await status_message.edit_text(
-                    "ℹ️ No matches found for the upcoming week.\n"
-                    "This could be because:\n"
-                    "• There are no scheduled matches\n"
-                    "• The API service is temporarily unavailable\n"
-                    "Please try again later."
-                )
+                await message.edit_text("❌ No matches found for analysis.\nThis could be because:\n1. There are no upcoming Premier League matches in the next 7 days\n2. The API data hasn't been updated yet\n\nPlease try again later.")
                 return
-            
-            await status_message.edit_text(
-                f"✅ Found {len(predictions)} matches\n"
-                "🔄 Formatting predictions..."
-            )
-            
-            # Group predictions by league
-            league_predictions = {}
+                
+            # Format and send each prediction
             for prediction in predictions:
-                league_name = prediction['league']['name']
-                if league_name not in league_predictions:
-                    league_predictions[league_name] = []
-                league_predictions[league_name].append(prediction)
-            
-            # Format predictions by league
-            formatted_messages = []
-            for league_name, league_preds in league_predictions.items():
-                formatted_predictions = []
-                for prediction in league_preds:
-                    try:
-                        formatted_text = format_prediction(prediction)
-                        formatted_predictions.append(formatted_text)
-                    except Exception as format_error:
-                        logger.error(f"Error formatting prediction: {str(format_error)}")
-                        continue
-                
-                if formatted_predictions:
-                    league_message = "\n".join(formatted_predictions)
-                    formatted_messages.append(league_message)
-            
-            if not formatted_messages:
-                await status_message.edit_text(
-                    "❌ Error formatting predictions.\n"
-                    "This might be due to unexpected data format.\n"
-                    "The development team has been notified."
-                )
-                return
-            
-            # Delete status message
-            await status_message.delete()
-            
-            # Send predictions in chunks if needed
-            intro_message = "🎯 *Football Predictions*\n\n"
-            current_message = intro_message
-            
-            for message in formatted_messages:
-                if len(current_message + message) > 4000:  # Telegram message limit
-                    await update.message.reply_text(current_message, parse_mode='Markdown')
-                    current_message = message
-                else:
-                    current_message += message
-            
-            if current_message:
-                await update.message.reply_text(current_message, parse_mode='Markdown')
-                
-            logger.info("Successfully sent predictions")
-            
-        except ValueError as ve:
-            error_msg = (
-                "❌ Configuration Error\n"
-                "The bot is not properly configured.\n"
-                f"Details: {str(ve)}"
-            )
-            await status_message.edit_text(error_msg)
-            logger.error(f"Configuration error: {str(ve)}")
-            
-        except ConnectionError as ce:
-            error_msg = (
-                "❌ API Connection Error\n"
-                "Could not connect to the prediction service.\n"
-                "This might be due to:\n"
-                "• Invalid API key\n"
-                "• API service is down\n"
-                "• Rate limit exceeded\n"
-                "Please try again later."
-            )
-            await status_message.edit_text(error_msg)
-            logger.error(f"Connection error: {str(ce)}")
+                try:
+                    formatted_text = format_prediction(prediction)
+                    if len(formatted_text) > 4096:  # Telegram message limit
+                        # Split message if too long
+                        chunks = [formatted_text[i:i+4096] for i in range(0, len(formatted_text), 4096)]
+                        for chunk in chunks:
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=chunk,
+                                parse_mode='Markdown'
+                            )
+                    else:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=formatted_text,
+                            parse_mode='Markdown'
+                        )
+                except Exception as e:
+                    logger.error(f"Error formatting/sending prediction: {str(e)}")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="❌ Error formatting this prediction. Skipping to next match..."
+                    )
+                    continue
+                    
+            # Delete the "analyzing" message
+            await message.delete()
             
         except Exception as e:
+            logger.error(f"Error getting predictions: {str(e)}")
             error_msg = (
-                "❌ Unexpected Error\n"
-                "An error occurred while processing your request.\n"
-                "The development team has been notified.\n"
-                "Please try again later."
+                "❌ Error getting predictions.\n\n"
+                "Possible issues:\n"
+                "1. API rate limit exceeded\n"
+                "2. Network connection problem\n"
+                "3. Invalid API key\n\n"
+                "Please try again in a few minutes."
             )
-            await status_message.edit_text(error_msg)
-            logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+            await message.edit_text(error_msg)
             
     except Exception as e:
-        logger.error(f"Critical error in get_predictions: {str(e)}", exc_info=True)
+        logger.error(f"Critical error in get_predictions: {str(e)}")
+        error_msg = (
+            "❌ A critical error occurred.\n\n"
+            "Please check:\n"
+            "1. Your API key is valid\n"
+            "2. You have sufficient API credits\n"
+            "3. The bot has proper permissions\n\n"
+            "Try again in a few minutes."
+        )
         try:
-            await update.message.reply_text(
-                "❌ Critical Error\n"
-                "A critical error occurred while processing your request.\n"
-                "Please try again later."
-            )
+            await update.message.reply_text(error_msg)
         except Exception as msg_error:
             logger.error(f"Error sending error message: {str(msg_error)}")
 
 def main() -> None:
-    # Load environment variables
-    load_dotenv()
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    if not token:
-        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
-
-    # Configure logging
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO
-    )
-    logger = logging.getLogger(__name__)
-
-    logger.info("Starting bot with configuration:")
-    logger.info(f"- TELEGRAM_BOT_TOKEN: {'*' * len(token)}")
-    logger.info(f"- RAPIDAPI_KEY: {'*' * len(os.getenv('RAPIDAPI_KEY', ''))}")
-
+    """Main function to run the bot"""
     try:
-        # Build application with minimal configuration
-        builder = ApplicationBuilder()
-        builder.token(token)
-        builder.concurrent_updates(True)
-        builder.job_queue(None)  # Explicitly disable job queue
-        application = builder.build()
-
-        # Add handlers
+        # Configure logging first
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler('bot.log')
+            ]
+        )
+        logger = logging.getLogger(__name__)
+        
+        # Load environment variables
+        load_dotenv()
+        token = os.getenv('TELEGRAM_BOT_TOKEN')
+        if not token:
+            raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables")
+            
+        rapidapi_key = os.getenv('RAPIDAPI_KEY')
+        if not rapidapi_key:
+            raise ValueError("RAPIDAPI_KEY not found in environment variables")
+            
+        logger.info("Starting Telegram bot...")
+        logger.info(f"Telegram token present: {'Yes' if token else 'No'}")
+        logger.info(f"RapidAPI key present: {'Yes' if rapidapi_key else 'No'}")
+        
+        # Test API connection
+        try:
+            scraper = BettingScraper()
+            logger.info("Successfully initialized BettingScraper")
+        except Exception as e:
+            logger.error(f"Failed to initialize BettingScraper: {str(e)}")
+            raise
+        
+        # Create application and pass it bot's token
+        application = Application.builder().token(token).build()
+        
+        # Add command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("predictions", get_predictions))
-
+        
         # Start the bot
-        logger.info("Starting bot...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-
+        logger.info("Bot is starting...")
+        application.run_polling()
+        
     except Exception as e:
-        logger.error(f"Fatal error in main: {str(e)}", exc_info=True)
+        logger.error(f"Critical error starting bot: {str(e)}")
         raise
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -7,23 +7,31 @@ import json
 from tqdm import tqdm
 import logging
 
-class BettingScraper:
-    # Premier League configuration
-    LEAGUES = {
-        'premier_league': {
-            'id': 39,  # Premier League ID
-            'name': 'Premier League',
-            'country': 'England',
-            'season': 2024
-        }
+# Constants
+LEAGUES = {
+    'premier_league': {
+        'id': 39,
+        'name': 'Premier League',
+        'country': 'England',
+        'season': 2025  # 2024/2025 season
     }
+}
 
+class BettingScraper:
     def __init__(self):
         """Initialize the scraper with API key"""
+        # Configure logging first
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        self.logger = logging.getLogger(__name__)
+        
+        # Load environment variables
         load_dotenv()
         self.api_key = os.getenv('RAPIDAPI_KEY')
         if not self.api_key:
-            raise ValueError("RAPIDAPI_KEY environment variable is not set. Please configure it in your environment variables.")
+            raise ValueError("RAPIDAPI_KEY environment variable is not set")
             
         self.base_url = "https://api-football-v1.p.rapidapi.com/v3"
         self.headers = {
@@ -32,133 +40,187 @@ class BettingScraper:
         }
         
         # Print initialization info
-        print(f"Initializing BettingScraper...")
-        print(f"API Key present: {'Yes' if self.api_key else 'No'}")
-        print(f"API Key length: {len(self.api_key) if self.api_key else 0}")
+        self.logger.info("Initializing BettingScraper...")
+        self.logger.info(f"API Key present: {'Yes' if self.api_key else 'No'}")
         
         # Verify API connection on initialization
         if not self._verify_api_connection():
-            raise ConnectionError("Failed to verify API connection. Please check your API key and internet connection.")
-
-        self.logger = logging.getLogger(__name__)
+            raise ConnectionError("Failed to verify API connection")
 
     def _verify_api_connection(self):
         """Verify API connection and subscription status"""
         url = f"{self.base_url}/timezone"  # Using timezone endpoint to verify connection
         try:
-            print("Verifying API connection...")
+            self.logger.info("Verifying API connection...")
             response = requests.get(url, headers=self.headers)
             
             # Print response details for debugging
-            print(f"API Status Code: {response.status_code}")
+            self.logger.info(f"API Status Code: {response.status_code}")
             
             if response.status_code == 403:
-                print("API Access Error: Invalid API key or subscription")
+                self.logger.error("API Access Error: Invalid API key or subscription")
                 return False
             elif response.status_code == 429:
-                print("Rate Limit Error: Too many requests")
+                self.logger.error("Rate Limit Error: Too many requests")
                 return False
                 
             response.raise_for_status()
             
             # If we get here, the connection is good
-            print("API connection verified successfully")
-            print(f"Requests remaining: {response.headers.get('X-RateLimit-requests-Remaining', 'Unknown')}")
+            self.logger.info("API connection verified successfully")
+            self.logger.info(f"Requests remaining: {response.headers.get('X-RateLimit-requests-Remaining', 'Unknown')}")
             return True
             
         except requests.exceptions.RequestException as e:
-            print(f"API Connection Error: {str(e)}")
+            self.logger.error(f"API Connection Error: {str(e)}")
             if hasattr(e, 'response') and e.response is not None:
-                print(f"Error Response: {e.response.text}")
+                self.logger.error(f"Error Response: {e.response.text}")
             return False
         except Exception as e:
-            print(f"Unexpected Error: {str(e)}")
+            self.logger.error(f"Unexpected Error: {str(e)}")
             return False
 
     def _make_request(self, url, params=None, max_retries=3):
-        """Make an API request with retries"""
+        """Make an API request with retries and error handling"""
         for attempt in range(max_retries):
             try:
+                self.logger.debug(f"Making API request to {url}")
+                self.logger.debug(f"Request params: {params}")
+                
                 response = requests.get(url, headers=self.headers, params=params)
+                
+                # Log rate limit info
+                remaining_requests = response.headers.get('x-ratelimit-remaining')
+                if remaining_requests:
+                    self.logger.info(f"Remaining API requests: {remaining_requests}")
+                
+                # Check for rate limiting
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('retry-after', 60))
+                    self.logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
+                
+                # Check for other error status codes
                 response.raise_for_status()
-                return response.json()
+                
+                # Parse response
+                data = response.json()
+                
+                if not data.get('response'):
+                    self.logger.warning(f"Empty response from API: {data}")
+                    return None
+                
+                return data
+                
             except requests.exceptions.RequestException as e:
-                if attempt == max_retries - 1:  # Last attempt
-                    self.logger.error(f"Failed to make request after {max_retries} attempts: {str(e)}")
-                    raise
-                self.logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                time.sleep(1)  # Wait before retrying
+                self.logger.error(f"Request failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                continue
+            except ValueError as e:
+                self.logger.error(f"Invalid JSON response: {str(e)}")
+                return None
+            except Exception as e:
+                self.logger.error(f"Unexpected error in API request: {str(e)}")
+                return None
+        
+        self.logger.error(f"Failed to make request after {max_retries} attempts")
+        return None
 
     def get_matches(self, league_keys, days_ahead=7):
-        """
-        Get matches for the specified leagues for the next N days
-        Args:
-            league_keys (list): List of league keys to get matches for
-            days_ahead (int): Number of days ahead to get matches for, defaults to 7
-        Returns:
-            list: List of matches
-        """
-        self.logger.info(f"Getting matches for leagues: {league_keys} for next {days_ahead} days")
+        """Get matches for specified leagues"""
+        matches = []
         
-        if not isinstance(days_ahead, int) or days_ahead < 1:
-            days_ahead = 7  # Default to 7 days if invalid value provided
-            self.logger.warning(f"Invalid days_ahead value, using default: {days_ahead}")
+        try:
+            # Calculate date range
+            today = datetime.now()
+            end_date = today + timedelta(days=days_ahead)
             
-        today = datetime.now()
-        end_date = today + timedelta(days=days_ahead)
-        from_date = today.strftime('%Y-%m-%d')
-        to_date = end_date.strftime('%Y-%m-%d')
-        
-        self.logger.info(f"Date range: {from_date} to {to_date}")
-        
-        all_matches = []
-        for league_key in league_keys:
-            try:
-                league_info = self.LEAGUES.get(league_key)
-                if not league_info:
-                    self.logger.error(f"Invalid league key: {league_key}")
+            # Format dates for API
+            from_date = today.strftime("%Y-%m-%d")
+            to_date = end_date.strftime("%Y-%m-%d")
+            
+            self.logger.info(f"Searching for matches between {from_date} and {to_date}")
+            
+            for league_key in league_keys:
+                if league_key not in LEAGUES:
+                    self.logger.warning(f"Invalid league key: {league_key}")
                     continue
+                    
+                league = LEAGUES[league_key]
+                self.logger.info(f"Fetching matches for {league['name']}")
                 
-                self.logger.info(f"Fetching matches for league {league_key} (ID: {league_info['id']})")
-                
+                # Prepare API request
                 url = f"{self.base_url}/fixtures"
                 params = {
-                    'league': league_info['id'],
+                    'league': str(league['id']),
+                    'season': str(league['season']),
                     'from': from_date,
                     'to': to_date,
-                    'season': league_info['season']
+                    'timezone': 'Europe/London'  # Add timezone parameter
                 }
                 
-                self.logger.info(f"Fetching matches for {league_info['name']} (Season {params['season']})")
-                self.logger.debug(f"API Request - URL: {url}, Params: {params}")
+                # Print request details for debugging
+                self.logger.info(f"API Request - URL: {url}")
+                self.logger.info(f"API Request - Params: {params}")
                 
-                response_data = self._make_request(url, params)
-                if not response_data:
+                # Make API request
+                response = self._make_request(url, params)
+                
+                if not response:
+                    self.logger.error(f"No response received for {league['name']}")
                     continue
                     
-                matches_data = response_data.get('response', [])
-                self.logger.info(f"Found {len(matches_data)} matches for {league_key}")
+                if 'response' not in response:
+                    self.logger.error(f"Invalid response format for {league['name']}: {response}")
+                    continue
                 
-                for match in matches_data:
-                    match_data = {
-                        'home_team': match['teams']['home']['name'],
-                        'away_team': match['teams']['away']['name'],
-                        'home_team_id': match['teams']['home']['id'],
-                        'away_team_id': match['teams']['away']['id'],
-                        'date': match['fixture']['date'],
-                        'league': {
-                            'name': league_info['name'],
-                            'country': league_info['country']
+                # Process matches
+                league_matches = response['response']
+                self.logger.info(f"Found {len(league_matches)} matches for {league['name']}")
+                
+                for match in league_matches:
+                    try:
+                        fixture = match['fixture']
+                        teams = match['teams']
+                        league_info = match['league']
+                        
+                        # Only include matches that haven't started yet
+                        if fixture['status']['short'] != 'NS':  # NS = Not Started
+                            continue
+                        
+                        match_data = {
+                            'id': fixture['id'],
+                            'date': fixture['date'],
+                            'timestamp': fixture['timestamp'],
+                            'home_team': teams['home']['name'],
+                            'away_team': teams['away']['name'],
+                            'home_team_id': teams['home']['id'],
+                            'away_team_id': teams['away']['id'],
+                            'league': league_info['name'],
+                            'country': league_info['country'],
+                            'status': fixture['status']['short']
                         }
-                    }
-                    all_matches.append(match_data)
-                    
-            except Exception as e:
-                self.logger.error(f"Error fetching matches for {league_key}: {str(e)}")
-                continue
+                        matches.append(match_data)
+                        self.logger.info(f"Added match: {match_data['home_team']} vs {match_data['away_team']} on {match_data['date']}")
+                        
+                    except KeyError as e:
+                        self.logger.error(f"Error processing match data: {str(e)}")
+                        continue
                 
-        self.logger.info(f"Total matches found: {len(all_matches)}")
-        return all_matches
+                # Add delay between requests to avoid rate limiting
+                time.sleep(1)
+                
+        except Exception as e:
+            self.logger.error(f"Error in get_matches: {str(e)}")
+            
+        if not matches:
+            self.logger.warning("No matches found for the specified date range")
+        else:
+            self.logger.info(f"Total matches found: {len(matches)}")
+            
+        return matches
 
     def get_head_to_head(self, team1_id, team2_id):
         """Get head-to-head history between two teams"""
@@ -169,23 +231,23 @@ class BettingScraper:
         }
         
         try:
-            print(f"Fetching head-to-head data between teams {team1_id} and {team2_id}")
+            self.logger.info(f"Fetching head-to-head data between teams {team1_id} and {team2_id}")
             return self._make_request(url, params)
         except Exception as e:
-            print(f"Error fetching head-to-head data: {str(e)}")
+            self.logger.error(f"Error fetching head-to-head data: {str(e)}")
             return None
 
-    def get_team_statistics(self, team_id, season=2024):
+    def get_team_statistics(self, team_id, season=2023):
         """Get team statistics for the current season"""
         url = f"{self.base_url}/teams/statistics"
         params = {
             'team': team_id,
-            'league': self.LEAGUES['premier_league']['id'],
+            'league': LEAGUES['premier_league']['id'],
             'season': season
         }
         
         try:
-            print(f"Fetching statistics for team {team_id}")
+            self.logger.info(f"Fetching statistics for team {team_id}")
             response_data = self._make_request(url, params)
             if not response_data:
                 return None
@@ -207,7 +269,7 @@ class BettingScraper:
                 'fouls': stats.get('statistics', {}).get('fouls', {}).get('total', {}).get('total', 0)
             }
         except Exception as e:
-            print(f"Error fetching team statistics: {str(e)}")
+            self.logger.error(f"Error fetching team statistics: {str(e)}")
             return None
 
     def get_team_stats(self, team_id, last_n_matches=10):
@@ -247,111 +309,116 @@ class BettingScraper:
 
     def predict_match(self, h2h_data, home_team, away_team, home_stats, away_stats):
         """Make a prediction based on head-to-head history, current form, and team statistics"""
-        if not h2h_data or len(h2h_data) == 0:
-            return "Insufficient data for prediction"
-            
-        # Analyze last 5 matches
-        recent_matches = h2h_data[:5]
-        home_wins = 0
-        away_wins = 0
-        draws = 0
-        goals_scored = {'home': 0, 'away': 0}
-        
-        for match in recent_matches:
-            if not match['score']:
-                continue
+        try:
+            if not h2h_data or len(h2h_data) == 0:
+                return "Insufficient data for prediction"
                 
-            try:
-                home_score, away_score = map(int, match['score'].split('-'))
-                goals_scored['home'] += home_score
-                goals_scored['away'] += away_score
+            # Analyze last 5 matches
+            recent_matches = h2h_data[:5]
+            home_wins = 0
+            away_wins = 0
+            draws = 0
+            goals_scored = {'home': 0, 'away': 0}
+            
+            for match in recent_matches:
+                if not match['score']:
+                    continue
+                    
+                try:
+                    home_score, away_score = map(int, match['score'].split('-'))
+                    goals_scored['home'] += home_score
+                    goals_scored['away'] += away_score
+                    
+                    if home_score > away_score:
+                        home_wins += 1
+                    elif away_score > home_score:
+                        away_wins += 1
+                    else:
+                        draws += 1
+                except (ValueError, TypeError):
+                    continue
+            
+            num_matches = len(recent_matches)
+            if num_matches == 0:
+                return "Insufficient valid match data for prediction"
                 
-                if home_score > away_score:
-                    home_wins += 1
-                elif away_score > home_score:
-                    away_wins += 1
-                else:
-                    draws += 1
-            except (ValueError, TypeError):
-                continue
-        
-        num_matches = len(recent_matches)
-        if num_matches == 0:
-            return "Insufficient valid match data for prediction"
+            # Calculate form points (W=3, D=1, L=0)
+            def calculate_form_points(form_string):
+                points = 0
+                for result in form_string:
+                    if result == 'W': points += 3
+                    elif result == 'D': points += 1
+                return points
+                
+            home_form_points = calculate_form_points(home_stats['form']) if home_stats else 0
+            away_form_points = calculate_form_points(away_stats['form']) if away_stats else 0
             
-        # Calculate form points (W=3, D=1, L=0)
-        def calculate_form_points(form_string):
-            points = 0
-            for result in form_string:
-                if result == 'W': points += 3
-                elif result == 'D': points += 1
-            return points
+            # Consider home advantage
+            home_advantage = 1.2
             
-        home_form_points = calculate_form_points(home_stats['form']) if home_stats else 0
-        away_form_points = calculate_form_points(away_stats['form']) if away_stats else 0
-        
-        # Consider home advantage
-        home_advantage = 1.2
-        
-        # Calculate predicted goals using current season stats and h2h history
-        predicted_home_goals = (
-            (float(home_stats['goals_scored']['average']) * 2 +  # Current season scoring rate (weighted double)
-             goals_scored['home'] / num_matches) * home_advantage  # H2H scoring rate
-        ) / 3  # Average of both factors
-        
-        predicted_away_goals = (
-            (float(away_stats['goals_scored']['average']) * 2 +  # Current season scoring rate (weighted double)
-             goals_scored['away'] / num_matches)  # H2H scoring rate
-        ) / 3  # Average of both factors
-        
-        prediction = {
-            'winner': None,
-            'confidence': 0,
-            'expected_goals': {
-                'home': round(predicted_home_goals, 1),
-                'away': round(predicted_away_goals, 1)
-            },
-            'predicted_score': None,
-            'reasoning': []
-        }
-        
-        # Calculate win probability based on multiple factors
-        home_strength = (
-            (home_form_points / 15) * 0.3 +  # Current form (30% weight)
-            (home_wins / num_matches) * 0.3 +  # H2H record (30% weight)
-            (float(home_stats['goals_scored']['average']) / 
-             (float(home_stats['goals_scored']['average']) + float(away_stats['goals_scored']['average']))) * 0.2 +  # Scoring ability (20% weight)
-            (float(away_stats['goals_conceded']['average']) / 
-             (float(home_stats['goals_conceded']['average']) + float(away_stats['goals_conceded']['average']))) * 0.2  # Defensive ability (20% weight)
-        ) if home_stats and away_stats else 0.5
-        
-        # Add home advantage
-        home_strength *= home_advantage
-        
-        # Determine winner and confidence
-        if home_strength > 0.55:  # Threshold for home win prediction
-            prediction['winner'] = home_team
-            prediction['confidence'] = round(home_strength * 100)
-        elif home_strength < 0.45:  # Threshold for away win prediction
-            prediction['winner'] = away_team
-            prediction['confidence'] = round((1 - home_strength) * 100)
-        else:
-            prediction['winner'] = 'Draw'
-            prediction['confidence'] = round((1 - abs(0.5 - home_strength)) * 100)
-        
-        # Predict final score (rounded to nearest whole number)
-        prediction['predicted_score'] = f"{round(predicted_home_goals)}-{round(predicted_away_goals)}"
-        
-        # Build detailed reasoning
-        if home_stats and away_stats:
-            prediction['reasoning'].extend([
-                f"Current form (last 5): {home_team}: {home_stats['form']}, {away_team}: {away_stats['form']}",
-                f"Season goals scored per game: {home_team}: {float(home_stats['goals_scored']['average']):.1f}, {away_team}: {float(away_stats['goals_scored']['average']):.1f}",
-                f"Season goals conceded per game: {home_team}: {float(home_stats['goals_conceded']['average']):.1f}, {away_team}: {float(away_stats['goals_conceded']['average']):.1f}",
-                f"H2H Record (last {num_matches}): {home_team} wins: {home_wins}, {away_team} wins: {away_wins}, Draws: {draws}"
-            ])
-        
-        return prediction
+            # Calculate predicted goals using current season stats and h2h history
+            predicted_home_goals = (
+                (float(home_stats['goals_scored']['average']) * 2 +  # Current season scoring rate (weighted double)
+                 goals_scored['home'] / num_matches) * home_advantage  # H2H scoring rate
+            ) / 3  # Average of both factors
+            
+            predicted_away_goals = (
+                (float(away_stats['goals_scored']['average']) * 2 +  # Current season scoring rate (weighted double)
+                 goals_scored['away'] / num_matches)  # H2H scoring rate
+            ) / 3  # Average of both factors
+            
+            prediction = {
+                'winner': None,
+                'confidence': 0,
+                'expected_goals': {
+                    'home': round(predicted_home_goals, 1),
+                    'away': round(predicted_away_goals, 1)
+                },
+                'predicted_score': None,
+                'reasoning': []
+            }
+            
+            # Calculate win probability based on multiple factors
+            home_strength = (
+                (home_form_points / 15) * 0.3 +  # Current form (30% weight)
+                (home_wins / num_matches) * 0.3 +  # H2H record (30% weight)
+                (float(home_stats['goals_scored']['average']) / 
+                 (float(home_stats['goals_scored']['average']) + float(away_stats['goals_scored']['average']))) * 0.2 +  # Scoring ability (20% weight)
+                (float(away_stats['goals_conceded']['average']) / 
+                 (float(home_stats['goals_conceded']['average']) + float(away_stats['goals_conceded']['average']))) * 0.2  # Defensive ability (20% weight)
+            ) if home_stats and away_stats else 0.5
+            
+            # Add home advantage
+            home_strength *= home_advantage
+            
+            # Determine winner and confidence
+            if home_strength > 0.55:  # Threshold for home win prediction
+                prediction['winner'] = home_team
+                prediction['confidence'] = round(home_strength * 100)
+            elif home_strength < 0.45:  # Threshold for away win prediction
+                prediction['winner'] = away_team
+                prediction['confidence'] = round((1 - home_strength) * 100)
+            else:
+                prediction['winner'] = 'Draw'
+                prediction['confidence'] = round((1 - abs(0.5 - home_strength)) * 100)
+            
+            # Predict final score (rounded to nearest whole number)
+            prediction['predicted_score'] = f"{round(predicted_home_goals)}-{round(predicted_away_goals)}"
+            
+            # Build detailed reasoning
+            if home_stats and away_stats:
+                prediction['reasoning'].extend([
+                    f"Current form (last 5): {home_team}: {home_stats['form']}, {away_team}: {away_stats['form']}",
+                    f"Season goals scored per game: {home_team}: {float(home_stats['goals_scored']['average']):.1f}, {away_team}: {float(away_stats['goals_scored']['average']):.1f}",
+                    f"Season goals conceded per game: {home_team}: {float(home_stats['goals_conceded']['average']):.1f}, {away_team}: {float(away_stats['goals_conceded']['average']):.1f}",
+                    f"H2H Record (last {num_matches}): {home_team} wins: {home_wins}, {away_team} wins: {away_wins}, Draws: {draws}"
+                ])
+            
+            return prediction
+            
+        except Exception as e:
+            self.logger.error(f"Error predicting match: {str(e)}")
+            return None
 
     def predict_over_under(self, home_stats, away_stats, threshold=2.5):
         """Predict if the match will go over/under the goal threshold"""
@@ -371,7 +438,7 @@ class BettingScraper:
                 'expected_goals': round(expected_goals, 2)
             }
         except Exception as e:
-            print(f"Error in over/under prediction: {str(e)}")
+            self.logger.error(f"Error in over/under prediction: {str(e)}")
             return {'prediction': 'UNKNOWN', 'confidence': 0, 'expected_goals': 0}
 
     def predict_btts(self, home_stats, away_stats):
@@ -389,7 +456,7 @@ class BettingScraper:
                 'confidence': btts_probability if btts_probability > 50 else 100 - btts_probability
             }
         except Exception as e:
-            print(f"Error in BTTS prediction: {str(e)}")
+            self.logger.error(f"Error in BTTS prediction: {str(e)}")
             return {'prediction': 'UNKNOWN', 'confidence': 0}
 
     def predict_first_half(self, home_stats, away_stats):
@@ -410,7 +477,7 @@ class BettingScraper:
                 'away_first_half_goals': away_first_half
             }
         except Exception as e:
-            print(f"Error in first half prediction: {str(e)}")
+            self.logger.error(f"Error in first half prediction: {str(e)}")
             return {'prediction': 'UNKNOWN', 'confidence': 0}
 
     def calculate_form_points(self, form_data):
@@ -555,21 +622,40 @@ class BettingScraper:
             home_team = match['home_team']
             away_team = match['away_team']
             
-            # Get team forms
-            home_form = self.get_team_stats(match['home_team_id'], last_n_matches=10)
-            away_form = self.get_team_stats(match['away_team_id'], last_n_matches=10)
+            self.logger.info(f"Analyzing match: {home_team} vs {away_team}")
+            
+            # Get team forms with error handling
+            try:
+                home_form = self.get_team_stats(match['home_team_id'], last_n_matches=10)
+                if not home_form:
+                    self.logger.warning(f"No form data available for {home_team}")
+                    return None
+            except Exception as e:
+                self.logger.error(f"Error getting home team stats: {str(e)}")
+                return None
+                
+            try:
+                away_form = self.get_team_stats(match['away_team_id'], last_n_matches=10)
+                if not away_form:
+                    self.logger.warning(f"No form data available for {away_team}")
+                    return None
+            except Exception as e:
+                self.logger.error(f"Error getting away team stats: {str(e)}")
+                return None
             
             analysis = {
                 'match': f"{home_team} vs {away_team}",
                 'date': match['date'],
                 'league': {
-                    'name': 'Premier League',
-                    'country': 'England'
+                    'name': match.get('league', 'Unknown League'),
+                    'country': match.get('country', 'Unknown Country')
                 },
                 'predictions': {
                     'over_under_2_5': {'prediction': 'UNKNOWN', 'confidence': 0},
                     'btts': {'prediction': 'UNKNOWN', 'confidence': 0},
-                    'first_half': {'prediction': 'UNKNOWN', 'confidence': 0}
+                    'first_half': {'prediction': 'UNKNOWN', 'confidence': 0},
+                    'match_outcome': {'prediction': 'UNKNOWN', 'probabilities': {'home': 0, 'draw': 0, 'away': 0}},
+                    'score': {'home_score': 0, 'away_score': 0, 'confidence': 0}
                 },
                 'head_to_head': [],
                 'home_form': home_form,
@@ -578,118 +664,175 @@ class BettingScraper:
             
             # Add head-to-head analysis if available
             if h2h_data and isinstance(h2h_data, dict) and 'response' in h2h_data:
-                h2h_matches = h2h_data['response']
-                if h2h_matches:
-                    total_goals = 0
-                    btts_count = 0
-                    
-                    # Process last 5 H2H matches
-                    for match in h2h_matches[:5]:
-                        home_goals = match['goals']['home'] or 0
-                        away_goals = match['goals']['away'] or 0
-                        total_goals += home_goals + away_goals
+                try:
+                    h2h_matches = h2h_data['response']
+                    if h2h_matches:
+                        self.logger.info(f"Processing {len(h2h_matches[:5])} H2H matches")
                         
-                        if home_goals > 0 and away_goals > 0:
-                            btts_count += 1
+                        # Process H2H matches
+                        total_goals = 0
+                        btts_count = 0
+                        for h2h_match in h2h_matches[:5]:
+                            try:
+                                home_goals = h2h_match['goals']['home'] or 0
+                                away_goals = h2h_match['goals']['away'] or 0
+                                total_goals += home_goals + away_goals
+                                
+                                if home_goals > 0 and away_goals > 0:
+                                    btts_count += 1
+                                    
+                                match_info = {
+                                    'date': h2h_match['fixture']['date'],
+                                    'home_team': h2h_match['teams']['home']['name'],
+                                    'away_team': h2h_match['teams']['away']['name'],
+                                    'score': f"{home_goals}-{away_goals}"
+                                }
+                                analysis['head_to_head'].append(match_info)
+                            except Exception as e:
+                                self.logger.error(f"Error processing H2H match: {str(e)}")
+                                continue
+                        
+                        # Calculate averages
+                        if len(h2h_matches[:5]) > 0:
+                            avg_goals = total_goals / len(h2h_matches[:5])
+                            btts_ratio = btts_count / len(h2h_matches[:5])
                             
-                        # Add H2H match details
-                        h2h_match = {
-                            'date': match['fixture']['date'],
-                            'home_team': match['teams']['home']['name'],
-                            'away_team': match['teams']['away']['name'],
-                            'score': f"{home_goals}-{away_goals}",
-                            'winner': 'Draw' if home_goals == away_goals else (
-                                match['teams']['home']['name'] if home_goals > away_goals 
-                                else match['teams']['away']['name']
-                            )
-                        }
-                        analysis['head_to_head'].append(h2h_match)
-                    
-                    avg_goals = total_goals / len(h2h_matches[:5])
-                    btts_ratio = btts_count / len(h2h_matches[:5])
-                    
-                    # Over/Under prediction
-                    analysis['predictions']['over_under_2_5'] = {
-                        'prediction': 'OVER' if avg_goals > 2.5 else 'UNDER',
-                        'confidence': min(100, round(abs(avg_goals - 2.5) * 20, 1))
-                    }
-                    
-                    # BTTS prediction
-                    analysis['predictions']['btts'] = {
-                        'prediction': 'YES' if btts_ratio > 0.5 else 'NO',
-                        'confidence': round(abs(btts_ratio - 0.5) * 200, 1)
-                    }
-                    
-                    # Add match outcome prediction
-                    winner_prediction = self.predict_winner(home_form, away_form, h2h_matches)
+                            # Update predictions based on H2H
+                            analysis['predictions']['over_under_2_5']['prediction'] = 'OVER' if avg_goals > 2.5 else 'UNDER'
+                            analysis['predictions']['over_under_2_5']['confidence'] = min(abs(avg_goals - 2.5) * 20, 100)
+                            
+                            analysis['predictions']['btts']['prediction'] = 'YES' if btts_ratio > 0.5 else 'NO'
+                            analysis['predictions']['btts']['confidence'] = btts_ratio * 100
+                except Exception as e:
+                    self.logger.error(f"Error processing H2H data: {str(e)}")
+            
+            # Make predictions
+            try:
+                winner_prediction = self.predict_winner(home_form, away_form, analysis['head_to_head'])
+                if winner_prediction:
                     analysis['predictions']['match_outcome'] = winner_prediction
-                    
-                    # Add score prediction
-                    score_prediction = self.predict_score(home_form, away_form, h2h_matches)
+            except Exception as e:
+                self.logger.error(f"Error predicting winner: {str(e)}")
+            
+            try:
+                score_prediction = self.predict_score(home_form, away_form, analysis['head_to_head'])
+                if score_prediction:
                     analysis['predictions']['score'] = score_prediction
+            except Exception as e:
+                self.logger.error(f"Error predicting score: {str(e)}")
             
             return analysis
             
         except Exception as e:
-            self.logger.error(f"Error analyzing match {home_team} vs {away_team}: {str(e)}")
+            self.logger.error(f"Error analyzing match: {str(e)}")
             return None
 
     def analyze_weekend_matches(self):
         """Analyze matches for the upcoming weekend across all supported leagues."""
         try:
             # Get all league keys from our LEAGUES dictionary
-            league_keys = list(self.LEAGUES.keys())
+            league_keys = list(LEAGUES.keys())
             self.logger.info(f"Analyzing matches for leagues: {league_keys}")
             
             # Get matches for all leagues
             matches = self.get_matches(league_keys)
             if not matches:
-                self.logger.warning("No matches found for the upcoming week")
+                self.logger.warning("No matches found for analysis")
                 return []
-
-            analyzed_matches = []
+                
+            self.logger.info(f"Found {len(matches)} matches to analyze")
+            
+            # Analyze each match
+            predictions = []
             for match in matches:
                 try:
-                    # Get head to head data
-                    h2h_data = self.get_head_to_head(
-                        match['home_team_id'],
-                        match['away_team_id']
-                    )
-
-                    # Analyze the match
-                    analysis = self.analyze_match(match, h2h_data)
-                    if analysis:
-                        analyzed_matches.append(analysis)
+                    self.logger.info(f"Analyzing match: {match['home_team']} vs {match['away_team']}")
+                    
+                    # Get head-to-head data
+                    h2h_data = self.get_head_to_head(match['home_team_id'], match['away_team_id'])
+                    if not h2h_data:
+                        self.logger.warning(f"No H2H data found for {match['home_team']} vs {match['away_team']}")
+                    
+                    # Analyze match
+                    prediction = self.analyze_match(match, h2h_data)
+                    if prediction:
+                        predictions.append(prediction)
+                    else:
+                        self.logger.warning(f"Failed to analyze match: {match['home_team']} vs {match['away_team']}")
+                        
                 except Exception as e:
-                    self.logger.error(f"Error analyzing match {match['home_team']} vs {match['away_team']}: {str(e)}")
+                    self.logger.error(f"Error analyzing match: {str(e)}")
                     continue
-
-            return analyzed_matches
+            
+            self.logger.info(f"Successfully analyzed {len(predictions)} matches")
+            return predictions
+            
         except Exception as e:
             self.logger.error(f"Error in analyze_weekend_matches: {str(e)}")
-            raise
+            return []
 
 def main():
-    scraper = BettingScraper()
-    results = scraper.analyze_weekend_matches()
-    
-    if results:
-        # Save results to a JSON file
-        output_file = 'predictions.json'
-        with open(output_file, 'w') as f:
-            json.dump(results, f, indent=4)
-        print(f"\nPredictions saved to {output_file}")
+    try:
+        scraper = BettingScraper()
+        results = scraper.analyze_weekend_matches()
         
-        # Print summary
-        print("\nMatch Predictions Summary:")
-        for result in results:
-            print(f"\n{result['match']} ({result['date']}) in {result['league']['name']} ({result['league']['country']})")
-            predictions = result['predictions']
-            print(f"Over/Under 2.5: {predictions['over_under_2_5']['prediction']} (Confidence: {predictions['over_under_2_5']['confidence']:.1f}%)")
-            print(f"BTTS: {predictions['btts']['prediction']} (Confidence: {predictions['btts']['confidence']:.1f}%)")
-            print(f"First Half: {predictions['first_half']['prediction']} (Confidence: {predictions['first_half']['confidence']:.1f}%)")
-            print(f"Match Outcome: {predictions['match_outcome']['prediction']} (Confidence: {predictions['match_outcome']['probabilities'][predictions['match_outcome']['prediction'].lower()]:.1f}%)")
-            print(f"Score: {predictions['score']['home_score']}-{predictions['score']['away_score']} (Confidence: {predictions['score']['confidence']:.1f}%)")
+        if results:
+            # Save results to a JSON file
+            output_file = 'predictions.json'
+            with open(output_file, 'w') as f:
+                json.dump(results, f, indent=4)
+            print(f"\nPredictions saved to {output_file}")
+            
+            # Print summary
+            print("\nMatch Predictions Summary:")
+            for result in results:
+                try:
+                    print(f"\n{result['match']} ({result['date']}) in {result['league']['name']} ({result['league']['country']})")
+                    predictions = result['predictions']
+                    
+                    # Print predictions with error handling
+                    try:
+                        print(f"Over/Under 2.5: {predictions['over_under_2_5']['prediction']} (Confidence: {predictions['over_under_2_5']['confidence']:.1f}%)")
+                    except (KeyError, TypeError):
+                        print("Over/Under 2.5: Not available")
+                        
+                    try:
+                        print(f"BTTS: {predictions['btts']['prediction']} (Confidence: {predictions['btts']['confidence']:.1f}%)")
+                    except (KeyError, TypeError):
+                        print("BTTS: Not available")
+                        
+                    try:
+                        print(f"First Half: {predictions['first_half']['prediction']} (Confidence: {predictions['first_half']['confidence']:.1f}%)")
+                    except (KeyError, TypeError):
+                        print("First Half: Not available")
+                        
+                    try:
+                        outcome = predictions['match_outcome']
+                        if isinstance(outcome, dict) and 'prediction' in outcome:
+                            print(f"Match Outcome: {outcome['prediction']} (Confidence: {outcome['probabilities'].get(outcome['prediction'].lower(), 0):.1f}%)")
+                        else:
+                            print("Match Outcome: Not available")
+                    except (KeyError, TypeError, AttributeError):
+                        print("Match Outcome: Not available")
+                        
+                    try:
+                        score = predictions['score']
+                        if isinstance(score, dict) and 'home_score' in score:
+                            print(f"Score: {score['home_score']}-{score['away_score']} (Confidence: {score['confidence']:.1f}%)")
+                        else:
+                            print("Score: Not available")
+                    except (KeyError, TypeError):
+                        print("Score: Not available")
+                        
+                except Exception as e:
+                    print(f"Error printing match result: {str(e)}")
+                    continue
+        else:
+            print("\nNo predictions available.")
+            
+    except Exception as e:
+        print(f"\nError running predictions: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main()
