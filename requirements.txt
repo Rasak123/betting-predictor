@@ -1,6 +1,6 @@
 requests==2.31.0
 python-dotenv==1.0.0
-python-telegram-bot==13.7
+python-telegram-bot==12.8
 logging==0.5.1.2
 tqdm==4.66.1
 pytz==2024.1
