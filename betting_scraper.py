@@ -207,6 +207,7 @@ class BettingScraper:
                                 'home_team_id': teams['home']['id'],
                                 'away_team_id': teams['away']['id'],
                                 'league': league_info['name'],
+                                'league_id': league_info['id'],  # Add league ID
                                 'country': league_info['country'],
                                 'status': fixture['status']['short']
                             }
@@ -637,8 +638,7 @@ class BettingScraper:
                 'clean_sheets': home_stats['clean_sheet']['home'],
                 'failed_to_score': home_stats['failed_to_score']['home'],
                 'avg_goals_scored': round(float(home_stats['goals']['for']['average']['home']), 2),
-                'avg_goals_conceded': round(float(home_stats['goals']['against']['average']['home']), 2),
-                'corners_per_game': round(float(home_stats['fixtures']['corners']['total']['home']) / max(1, home_stats['fixtures']['played']['home']), 2)
+                'avg_goals_conceded': round(float(home_stats['goals']['against']['average']['home']), 2)
             }
             
             # Analyze away team performance
@@ -648,8 +648,7 @@ class BettingScraper:
                 'clean_sheets': away_stats['clean_sheet']['away'],
                 'failed_to_score': away_stats['failed_to_score']['away'],
                 'avg_goals_scored': round(float(away_stats['goals']['for']['average']['away']), 2),
-                'avg_goals_conceded': round(float(away_stats['goals']['against']['average']['away']), 2),
-                'corners_per_game': round(float(away_stats['fixtures']['corners']['total']['away']) / max(1, away_stats['fixtures']['played']['away']), 2)
+                'avg_goals_conceded': round(float(away_stats['goals']['against']['average']['away']), 2)
             }
             
             # Analyze H2H history
@@ -660,8 +659,6 @@ class BettingScraper:
                 'draws': 0,
                 'over_1_5': 0,
                 'over_4_5': 0,
-                'home_corners_won': 0,
-                'away_corners_won': 0,
                 'home_won_half': 0
             }
             
@@ -683,26 +680,29 @@ class BettingScraper:
                     h2h_stats['over_4_5'] += 1
                     
                 # Check if home team won either half
-                if h2h['score']['halftime']['home'] > h2h['score']['halftime']['away'] or \
-                   (h2h['score']['fulltime']['home'] - h2h['score']['halftime']['home']) > \
-                   (h2h['score']['fulltime']['away'] - h2h['score']['halftime']['away']):
-                    h2h_stats['home_won_half'] += 1
-                    
-                if h2h['statistics'] and 'Corner Kicks' in h2h['statistics']:
-                    home_corners = int(h2h['statistics']['Corner Kicks']['home'])
-                    away_corners = int(h2h['statistics']['Corner Kicks']['away'])
-                    if home_corners > away_corners:
-                        h2h_stats['home_corners_won'] += 1
-                    elif away_corners > home_corners:
-                        h2h_stats['away_corners_won'] += 1
+                try:
+                    if h2h['score'] and h2h['score']['halftime'] and h2h['score']['fulltime']:
+                        ht_home = h2h['score']['halftime']['home'] or 0
+                        ht_away = h2h['score']['halftime']['away'] or 0
+                        ft_home = h2h['score']['fulltime']['home'] or 0
+                        ft_away = h2h['score']['fulltime']['away'] or 0
+                        
+                        # Check first half
+                        if ht_home > ht_away:
+                            h2h_stats['home_won_half'] += 1
+                        # Check second half
+                        elif (ft_home - ht_home) > (ft_away - ht_away):
+                            h2h_stats['home_won_half'] += 1
+                except (KeyError, TypeError):
+                    self.logger.warning("Missing score data in H2H match")
+                    continue
             
             # Calculate prediction confidence
             confidence_factors = {
-                'recent_form': 0.3,
-                'h2h_history': 0.25,
+                'recent_form': 0.35,  # Increased since we removed corners
+                'h2h_history': 0.3,   # Increased since we removed corners
                 'goals_scored': 0.2,
-                'defense': 0.15,
-                'home_advantage': 0.1
+                'defense': 0.15
             }
             
             # Calculate form-based confidence
@@ -717,8 +717,7 @@ class BettingScraper:
                 (home_form_score * confidence_factors['recent_form']) +
                 (h2h_ratio * 100 * confidence_factors['h2h_history']) +
                 (home_form['avg_goals_scored'] * 10 * confidence_factors['goals_scored']) +
-                ((1 - home_form['avg_goals_conceded']/3) * 100 * confidence_factors['defense']) +
-                (0.6 * 100 * confidence_factors['home_advantage'])  # Historical home advantage
+                ((1 - home_form['avg_goals_conceded']/3) * 100 * confidence_factors['defense'])
             )
             
             # Cap confidence between 0 and 100
@@ -735,9 +734,6 @@ class BettingScraper:
             
             # Predict home team winning either half
             home_half_win_prob = (h2h_stats['home_won_half'] / h2h_stats['total_matches']) * 100
-            
-            # Predict corners
-            home_corners_prob = (h2h_stats['home_corners_won'] / max(1, h2h_stats['home_corners_won'] + h2h_stats['away_corners_won'])) * 100
             
             return {
                 'home_form': home_form,
@@ -760,10 +756,6 @@ class BettingScraper:
                     'home_win_either_half': {
                         'probability': round(home_half_win_prob, 2),
                         'prediction': home_half_win_prob > 50
-                    },
-                    'most_corners': {
-                        'team': match['home_team'] if home_corners_prob > 50 else match['away_team'],
-                        'probability': round(max(home_corners_prob, 100 - home_corners_prob), 2)
                     }
                 }
             }
@@ -829,12 +821,12 @@ def main():
             print("\nMatch Predictions Summary:")
             for result in results:
                 try:
-                    print(f"\n{result['match']} ({result['date']}) in {result['league']['name']} ({result['league']['country']})")
+                    print(f"\n{result['home_team']} vs {result['away_team']} ({result['league']})")
                     predictions = result['predictions']
                     
                     # Print predictions with error handling
                     try:
-                        print(f"Over/Under 2.5: {predictions['over_under_2_5']['prediction']} (Confidence: {predictions['over_under_2_5']['confidence']:.1f}%)")
+                        print(f"Over/Under 2.5: {predictions['over_1_5']['prediction']} (Confidence: {predictions['over_1_5']['probability']:.1f}%)")
                     except (KeyError, TypeError):
                         print("Over/Under 2.5: Not available")
                         

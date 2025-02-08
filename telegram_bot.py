@@ -75,8 +75,7 @@ def format_prediction(prediction):
             f"   • Avg Goals Scored: {home_form_stats.get('avg_goals_scored', 0)}\n"
             f"   • Avg Goals Conceded: {home_form_stats.get('avg_goals_conceded', 0)}\n"
             f"   • Clean Sheets: {home_form_stats.get('clean_sheets', 0)}\n"
-            f"   • Failed to Score: {home_form_stats.get('failed_to_score', 0)}\n"
-            f"   • Corners per Game: {home_form_stats.get('corners_per_game', 0)}"
+            f"   • Failed to Score: {home_form_stats.get('failed_to_score', 0)}"
         )
         
         # Format away team statistics
@@ -85,8 +84,7 @@ def format_prediction(prediction):
             f"   • Avg Goals Scored: {away_form_stats.get('avg_goals_scored', 0)}\n"
             f"   • Avg Goals Conceded: {away_form_stats.get('avg_goals_conceded', 0)}\n"
             f"   • Clean Sheets: {away_form_stats.get('clean_sheets', 0)}\n"
-            f"   • Failed to Score: {away_form_stats.get('failed_to_score', 0)}\n"
-            f"   • Corners per Game: {away_form_stats.get('corners_per_game', 0)}"
+            f"   • Failed to Score: {away_form_stats.get('failed_to_score', 0)}"
         )
         
         # Format head-to-head statistics
