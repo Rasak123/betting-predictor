@@ -198,7 +198,8 @@ class BettingScraper:
                         match_date = datetime.strptime(fixture['date'], "%Y-%m-%dT%H:%M:%S%z")
                         match_date = match_date.replace(tzinfo=None)
                         
-                        if match_date >= today:
+                        # Only include matches that haven't started yet (status: NS)
+                        if fixture['status']['short'] == 'NS':
                             match_data = {
                                 'id': fixture['id'],
                                 'date': fixture['date'],
@@ -215,7 +216,7 @@ class BettingScraper:
                             matches.append(match_data)
                             self.logger.info(f"Added match: {match_data['home_team']} vs {match_data['away_team']}")
                         else:
-                            self.logger.info(f"Skipping match - before current date")
+                            self.logger.info(f"Skipping match - status is {fixture['status']['short']}")
                             
                     except Exception as e:
                         self.logger.error(f"Error processing match: {str(e)}")
