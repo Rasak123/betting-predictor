@@ -251,40 +251,34 @@ class BettingScraper:
             self.logger.error(f"Error fetching head-to-head data: {str(e)}")
             return None
 
-    def get_team_statistics(self, team_id, season=2023):
-        """Get team statistics for the current season"""
+    def get_team_statistics(self, team_id, league_id, season):
+        """Get detailed team statistics"""
         url = f"{self.base_url}/teams/statistics"
         params = {
-            'team': team_id,
-            'league': LEAGUES['premier_league']['id'],
-            'season': season
+            'team': str(team_id),
+            'league': str(league_id),
+            'season': str(season)
         }
         
-        try:
-            self.logger.info(f"Fetching statistics for team {team_id}")
-            response_data = self._make_request(url, params)
-            if not response_data:
-                return None
-                
-            stats = response_data.get('response', {})
-            return {
-                'form': stats.get('form', [])[-5:],  # Last 5 matches form
-                'goals_scored': {
-                    'total': stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0),
-                    'average': stats.get('goals', {}).get('for', {}).get('average', {}).get('total', 0)
-                },
-                'goals_conceded': {
-                    'total': stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0),
-                    'average': stats.get('goals', {}).get('against', {}).get('average', {}).get('total', 0)
-                },
-                'clean_sheets': stats.get('clean_sheet', {}).get('total', 0),
-                'failed_to_score': stats.get('failed_to_score', {}).get('total', 0),
-                'corners': stats.get('statistics', {}).get('corners', {}).get('total', {}).get('total', 0),
-                'fouls': stats.get('statistics', {}).get('fouls', {}).get('total', {}).get('total', 0)
-            }
-        except Exception as e:
-            self.logger.error(f"Error fetching team statistics: {str(e)}")
+        response = self._make_request(url, params)
+        if not response or 'response' not in response:
             return None
+            
+        return response['response']
+
+    def get_h2h_matches(self, team1_id, team2_id, limit=20):
+        """Get head-to-head match history"""
+        url = f"{self.base_url}/fixtures/headtohead"
+        params = {
+            'h2h': f"{team1_id}-{team2_id}",
+            'last': str(limit)
+        }
+        
+        response = self._make_request(url, params)
+        if not response or 'response' not in response:
+            return []
+            
+        return response['response']
 
     def get_team_stats(self, team_id, last_n_matches=10):
         """Get team statistics from last N matches"""
@@ -623,122 +617,161 @@ class BettingScraper:
             self.logger.error(f"Error predicting winner: {str(e)}")
             return {'prediction': 'UNKNOWN', 'probabilities': {'home': 0, 'draw': 0, 'away': 0}}
 
-    def analyze_match(self, match, h2h_data=None):
-        """
-        Analyze a match and provide predictions
-        Args:
-            match (dict): Match data including teams and fixture details
-            h2h_data (dict): Head to head data between the teams
-        Returns:
-            dict: Match analysis and prediction
-        """
+    def analyze_match(self, match):
+        """Perform deep analysis of a match"""
         try:
-            home_team = match['home_team']
-            away_team = match['away_team']
+            # Get team statistics
+            home_stats = self.get_team_statistics(match['home_team_id'], match['league_id'], LEAGUES['premier_league']['season'])
+            away_stats = self.get_team_statistics(match['away_team_id'], match['league_id'], LEAGUES['premier_league']['season'])
             
-            self.logger.info(f"Analyzing match: {home_team} vs {away_team}")
-            
-            # Get team forms with error handling
-            try:
-                home_form = self.get_team_stats(match['home_team_id'], last_n_matches=10)
-                if not home_form:
-                    self.logger.warning(f"No form data available for {home_team}")
-                    return None
-            except Exception as e:
-                self.logger.error(f"Error getting home team stats: {str(e)}")
+            if not home_stats or not away_stats:
                 return None
                 
-            try:
-                away_form = self.get_team_stats(match['away_team_id'], last_n_matches=10)
-                if not away_form:
-                    self.logger.warning(f"No form data available for {away_team}")
-                    return None
-            except Exception as e:
-                self.logger.error(f"Error getting away team stats: {str(e)}")
-                return None
+            # Get H2H history
+            h2h_matches = self.get_h2h_matches(match['home_team_id'], match['away_team_id'])
             
-            analysis = {
-                'match': f"{home_team} vs {away_team}",
-                'date': match['date'],
-                'league': {
-                    'name': match.get('league', 'Unknown League'),
-                    'country': match.get('country', 'Unknown Country')
-                },
-                'predictions': {
-                    'over_under_2_5': {'prediction': 'UNKNOWN', 'confidence': 0},
-                    'btts': {'prediction': 'UNKNOWN', 'confidence': 0},
-                    'first_half': {'prediction': 'UNKNOWN', 'confidence': 0},
-                    'match_outcome': {'prediction': 'UNKNOWN', 'probabilities': {'home': 0, 'draw': 0, 'away': 0}},
-                    'score': {'home_score': 0, 'away_score': 0, 'confidence': 0}
-                },
-                'head_to_head': [],
-                'home_form': home_form,
-                'away_form': away_form
+            # Analyze home team performance
+            home_form = {
+                'goals_scored': home_stats['goals']['for']['total']['home'],
+                'goals_conceded': home_stats['goals']['against']['total']['home'],
+                'clean_sheets': home_stats['clean_sheet']['home'],
+                'failed_to_score': home_stats['failed_to_score']['home'],
+                'avg_goals_scored': round(float(home_stats['goals']['for']['average']['home']), 2),
+                'avg_goals_conceded': round(float(home_stats['goals']['against']['average']['home']), 2),
+                'corners_per_game': round(float(home_stats['fixtures']['corners']['total']['home']) / max(1, home_stats['fixtures']['played']['home']), 2)
             }
             
-            # Add head-to-head analysis if available
-            if h2h_data and isinstance(h2h_data, dict) and 'response' in h2h_data:
-                try:
-                    h2h_matches = h2h_data['response']
-                    if h2h_matches:
-                        self.logger.info(f"Processing {len(h2h_matches[:5])} H2H matches")
-                        
-                        # Process H2H matches
-                        total_goals = 0
-                        btts_count = 0
-                        for h2h_match in h2h_matches[:5]:
-                            try:
-                                home_goals = h2h_match['goals']['home'] or 0
-                                away_goals = h2h_match['goals']['away'] or 0
-                                total_goals += home_goals + away_goals
-                                
-                                if home_goals > 0 and away_goals > 0:
-                                    btts_count += 1
-                                    
-                                match_info = {
-                                    'date': h2h_match['fixture']['date'],
-                                    'home_team': h2h_match['teams']['home']['name'],
-                                    'away_team': h2h_match['teams']['away']['name'],
-                                    'score': f"{home_goals}-{away_goals}"
-                                }
-                                analysis['head_to_head'].append(match_info)
-                            except Exception as e:
-                                self.logger.error(f"Error processing H2H match: {str(e)}")
-                                continue
-                        
-                        # Calculate averages
-                        if len(h2h_matches[:5]) > 0:
-                            avg_goals = total_goals / len(h2h_matches[:5])
-                            btts_ratio = btts_count / len(h2h_matches[:5])
-                            
-                            # Update predictions based on H2H
-                            analysis['predictions']['over_under_2_5']['prediction'] = 'OVER' if avg_goals > 2.5 else 'UNDER'
-                            analysis['predictions']['over_under_2_5']['confidence'] = min(abs(avg_goals - 2.5) * 20, 100)
-                            
-                            analysis['predictions']['btts']['prediction'] = 'YES' if btts_ratio > 0.5 else 'NO'
-                            analysis['predictions']['btts']['confidence'] = btts_ratio * 100
-                except Exception as e:
-                    self.logger.error(f"Error processing H2H data: {str(e)}")
+            # Analyze away team performance
+            away_form = {
+                'goals_scored': away_stats['goals']['for']['total']['away'],
+                'goals_conceded': away_stats['goals']['against']['total']['away'],
+                'clean_sheets': away_stats['clean_sheet']['away'],
+                'failed_to_score': away_stats['failed_to_score']['away'],
+                'avg_goals_scored': round(float(away_stats['goals']['for']['average']['away']), 2),
+                'avg_goals_conceded': round(float(away_stats['goals']['against']['average']['away']), 2),
+                'corners_per_game': round(float(away_stats['fixtures']['corners']['total']['away']) / max(1, away_stats['fixtures']['played']['away']), 2)
+            }
+            
+            # Analyze H2H history
+            h2h_stats = {
+                'total_matches': len(h2h_matches),
+                'home_wins': 0,
+                'away_wins': 0,
+                'draws': 0,
+                'over_1_5': 0,
+                'over_4_5': 0,
+                'home_corners_won': 0,
+                'away_corners_won': 0,
+                'home_won_half': 0
+            }
+            
+            for h2h in h2h_matches:
+                home_score = h2h['goals']['home']
+                away_score = h2h['goals']['away']
+                total_goals = home_score + away_score
+                
+                if home_score > away_score:
+                    h2h_stats['home_wins'] += 1
+                elif away_score > home_score:
+                    h2h_stats['away_wins'] += 1
+                else:
+                    h2h_stats['draws'] += 1
+                    
+                if total_goals > 1.5:
+                    h2h_stats['over_1_5'] += 1
+                if total_goals > 4.5:
+                    h2h_stats['over_4_5'] += 1
+                    
+                # Check if home team won either half
+                if h2h['score']['halftime']['home'] > h2h['score']['halftime']['away'] or \
+                   (h2h['score']['fulltime']['home'] - h2h['score']['halftime']['home']) > \
+                   (h2h['score']['fulltime']['away'] - h2h['score']['halftime']['away']):
+                    h2h_stats['home_won_half'] += 1
+                    
+                if h2h['statistics'] and 'Corner Kicks' in h2h['statistics']:
+                    home_corners = int(h2h['statistics']['Corner Kicks']['home'])
+                    away_corners = int(h2h['statistics']['Corner Kicks']['away'])
+                    if home_corners > away_corners:
+                        h2h_stats['home_corners_won'] += 1
+                    elif away_corners > home_corners:
+                        h2h_stats['away_corners_won'] += 1
+            
+            # Calculate prediction confidence
+            confidence_factors = {
+                'recent_form': 0.3,
+                'h2h_history': 0.25,
+                'goals_scored': 0.2,
+                'defense': 0.15,
+                'home_advantage': 0.1
+            }
+            
+            # Calculate form-based confidence
+            home_form_score = (home_form['avg_goals_scored'] * 2 - home_form['avg_goals_conceded']) * 10
+            away_form_score = (away_form['avg_goals_scored'] * 2 - away_form['avg_goals_conceded']) * 10
+            
+            # Calculate H2H-based confidence
+            h2h_ratio = h2h_stats['home_wins'] / max(1, h2h_stats['total_matches'])
+            
+            # Combined confidence calculation
+            confidence = (
+                (home_form_score * confidence_factors['recent_form']) +
+                (h2h_ratio * 100 * confidence_factors['h2h_history']) +
+                (home_form['avg_goals_scored'] * 10 * confidence_factors['goals_scored']) +
+                ((1 - home_form['avg_goals_conceded']/3) * 100 * confidence_factors['defense']) +
+                (0.6 * 100 * confidence_factors['home_advantage'])  # Historical home advantage
+            )
+            
+            # Cap confidence between 0 and 100
+            confidence = max(0, min(100, confidence))
             
             # Make predictions
-            try:
-                winner_prediction = self.predict_winner(home_form, away_form, analysis['head_to_head'])
-                if winner_prediction:
-                    analysis['predictions']['match_outcome'] = winner_prediction
-            except Exception as e:
-                self.logger.error(f"Error predicting winner: {str(e)}")
+            predicted_home_goals = round((home_form['avg_goals_scored'] + away_form['avg_goals_conceded']) / 2)
+            predicted_away_goals = round((away_form['avg_goals_scored'] + home_form['avg_goals_conceded']) / 2)
             
-            try:
-                score_prediction = self.predict_score(home_form, away_form, analysis['head_to_head'])
-                if score_prediction:
-                    analysis['predictions']['score'] = score_prediction
-            except Exception as e:
-                self.logger.error(f"Error predicting score: {str(e)}")
+            # Predict over/under
+            total_predicted_goals = predicted_home_goals + predicted_away_goals
+            over_1_5_prob = (h2h_stats['over_1_5'] / h2h_stats['total_matches']) * 100
+            over_4_5_prob = (h2h_stats['over_4_5'] / h2h_stats['total_matches']) * 100
             
-            return analysis
+            # Predict home team winning either half
+            home_half_win_prob = (h2h_stats['home_won_half'] / h2h_stats['total_matches']) * 100
+            
+            # Predict corners
+            home_corners_prob = (h2h_stats['home_corners_won'] / max(1, h2h_stats['home_corners_won'] + h2h_stats['away_corners_won'])) * 100
+            
+            return {
+                'home_form': home_form,
+                'away_form': away_form,
+                'h2h_stats': h2h_stats,
+                'confidence': round(confidence, 2),
+                'predicted_score': {
+                    'home': predicted_home_goals,
+                    'away': predicted_away_goals
+                },
+                'predictions': {
+                    'over_1_5': {
+                        'probability': round(over_1_5_prob, 2),
+                        'prediction': over_1_5_prob > 60
+                    },
+                    'over_4_5': {
+                        'probability': round(over_4_5_prob, 2),
+                        'prediction': over_4_5_prob > 50
+                    },
+                    'home_win_either_half': {
+                        'probability': round(home_half_win_prob, 2),
+                        'prediction': home_half_win_prob > 50
+                    },
+                    'most_corners': {
+                        'team': match['home_team'] if home_corners_prob > 50 else match['away_team'],
+                        'probability': round(max(home_corners_prob, 100 - home_corners_prob), 2)
+                    }
+                }
+            }
             
         except Exception as e:
             self.logger.error(f"Error analyzing match: {str(e)}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             return None
 
     def analyze_weekend_matches(self):
@@ -762,13 +795,8 @@ class BettingScraper:
                 try:
                     self.logger.info(f"Analyzing match: {match['home_team']} vs {match['away_team']}")
                     
-                    # Get head-to-head data
-                    h2h_data = self.get_head_to_head(match['home_team_id'], match['away_team_id'])
-                    if not h2h_data:
-                        self.logger.warning(f"No H2H data found for {match['home_team']} vs {match['away_team']}")
-                    
                     # Analyze match
-                    prediction = self.analyze_match(match, h2h_data)
+                    prediction = self.analyze_match(match)
                     if prediction:
                         predictions.append(prediction)
                     else:

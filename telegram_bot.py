@@ -56,6 +56,12 @@ def format_prediction(prediction):
         home_form = prediction.get('home_form', [])
         away_form = prediction.get('away_form', [])
         
+        home_form_stats = prediction.get('home_form_stats', {})
+        away_form_stats = prediction.get('away_form_stats', {})
+        h2h_stats = prediction.get('h2h_stats', {})
+        predicted_score = prediction.get('predicted_score', {})
+        confidence = prediction.get('confidence', 0)
+        
         # Format main match info
         formatted_text = (
             f"🏆 *{league_info['name']}* ({league_info['country']})\n"
@@ -63,61 +69,65 @@ def format_prediction(prediction):
             f"📅 {date}\n\n"
         )
         
-        # Format head-to-head history
-        formatted_text += "*Head-to-Head (Last 5):*\n"
-        if h2h:
-            for match in h2h:
-                formatted_text += f"• {match['date'][:10]}: {match['home_team']} {match['score']} {match['away_team']}\n"
-        else:
-            formatted_text += "No recent head-to-head matches\n"
-        formatted_text += "\n"
+        # Format home team statistics
+        home_stats = (
+            f"🏠 Home Team Form:\n"
+            f"   • Avg Goals Scored: {home_form_stats.get('avg_goals_scored', 0)}\n"
+            f"   • Avg Goals Conceded: {home_form_stats.get('avg_goals_conceded', 0)}\n"
+            f"   • Clean Sheets: {home_form_stats.get('clean_sheets', 0)}\n"
+            f"   • Failed to Score: {home_form_stats.get('failed_to_score', 0)}\n"
+            f"   • Corners per Game: {home_form_stats.get('corners_per_game', 0)}"
+        )
         
-        # Format home team form
-        team_name = match_info.split(" vs ")[0]
-        formatted_text += f"*{team_name} Form (Last 10):*\n"
-        if home_form:
-            for match in home_form:
-                result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
-                formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
-        else:
-            formatted_text += "No recent form data available\n"
-        formatted_text += "\n"
+        # Format away team statistics
+        away_stats = (
+            f"🚌 Away Team Form:\n"
+            f"   • Avg Goals Scored: {away_form_stats.get('avg_goals_scored', 0)}\n"
+            f"   • Avg Goals Conceded: {away_form_stats.get('avg_goals_conceded', 0)}\n"
+            f"   • Clean Sheets: {away_form_stats.get('clean_sheets', 0)}\n"
+            f"   • Failed to Score: {away_form_stats.get('failed_to_score', 0)}\n"
+            f"   • Corners per Game: {away_form_stats.get('corners_per_game', 0)}"
+        )
         
-        # Format away team form
-        team_name = match_info.split(" vs ")[1]
-        formatted_text += f"*{team_name} Form (Last 10):*\n"
-        if away_form:
-            for match in away_form:
-                result_emoji = "✅" if match['result'] == 'W' else ("❌" if match['result'] == 'L' else "⚪")
-                formatted_text += f"• {match['date'][:10]} ({match['venue']}): vs {match['opponent']} {match['score']} {result_emoji}\n"
-        else:
-            formatted_text += "No recent form data available\n"
-        formatted_text += "\n"
+        # Format head-to-head statistics
+        h2h = (
+            f"📊 Head-to-Head Stats (Last {h2h_stats.get('total_matches', 0)} matches):\n"
+            f"   • Home Wins: {h2h_stats.get('home_wins', 0)}\n"
+            f"   • Away Wins: {h2h_stats.get('away_wins', 0)}\n"
+            f"   • Draws: {h2h_stats.get('draws', 0)}\n"
+            f"   • Over 1.5 Goals: {h2h_stats.get('over_1_5', 0)}\n"
+            f"   • Over 4.5 Goals: {h2h_stats.get('over_4_5', 0)}\n"
+            f"   • Home Team Won Either Half: {h2h_stats.get('home_won_half', 0)}"
+        )
         
-        # Format match outcome and score predictions
-        match_outcome = predictions.get('match_outcome', {})
-        score = predictions.get('score', {})
-        if match_outcome and score:
-            formatted_text += (
-                f"*Match Prediction:*\n"
-                f"🎯 Predicted Winner: {match_outcome.get('prediction', 'UNKNOWN')}\n"
-                f"   Home Win: {match_outcome.get('probabilities', {}).get('home', 0)}%\n"
-                f"   Draw: {match_outcome.get('probabilities', {}).get('draw', 0)}%\n"
-                f"   Away Win: {match_outcome.get('probabilities', {}).get('away', 0)}%\n\n"
-                f"📊 Predicted Score: {score.get('home_score', 0)}-{score.get('away_score', 0)}\n"
-                f"   Confidence: {score.get('confidence', 0)}%\n\n"
-            )
+        # Format predictions
+        predictions_text = (
+            f"🎯 Predictions:\n"
+            f"   • Predicted Score: {predicted_score.get('home', 0)}-{predicted_score.get('away', 0)}\n"
+            f"   • Over 1.5 Goals: {'✅' if predictions.get('over_1_5', {}).get('prediction', False) else '❌'} ({predictions.get('over_1_5', {}).get('probability', 0)}%)\n"
+            f"   • Over 4.5 Goals: {'✅' if predictions.get('over_4_5', {}).get('prediction', False) else '❌'} ({predictions.get('over_4_5', {}).get('probability', 0)}%)\n"
+            f"   • Home Team to Win Either Half: {'✅' if predictions.get('home_win_either_half', {}).get('prediction', False) else '❌'} ({predictions.get('home_win_either_half', {}).get('probability', 0)}%)\n"
+            f"   • Most Corners: {predictions.get('most_corners', {}).get('team', '')} ({predictions.get('most_corners', {}).get('probability', 0)}%)"
+        )
         
-        # Format other predictions
+        # Format confidence explanation
+        confidence_explanation = (
+            f"🎲 Prediction Confidence: {confidence}%\n"
+            f"Confidence factors:\n"
+            f"   • Recent Form (30%)\n"
+            f"   • H2H History (25%)\n"
+            f"   • Goals Scored (20%)\n"
+            f"   • Defense (15%)\n"
+            f"   • Home Advantage (10%)"
+        )
+        
+        # Combine all sections
         formatted_text += (
-            f"*Other Predictions:*\n"
-            f"📈 Over/Under 2.5: {predictions.get('over_under_2_5', {}).get('prediction', 'UNKNOWN')}\n"
-            f"   Confidence: {predictions.get('over_under_2_5', {}).get('confidence', 0):.1f}%\n\n"
-            f"🎯 BTTS: {predictions.get('btts', {}).get('prediction', 'UNKNOWN')}\n"
-            f"   Confidence: {predictions.get('btts', {}).get('confidence', 0):.1f}%\n\n"
-            f"⏱ First Half: {predictions.get('first_half', {}).get('prediction', 'UNKNOWN')}\n"
-            f"   Confidence: {predictions.get('first_half', {}).get('confidence', 0):.1f}%\n"
-            f"{'➖' * 20}\n"
+            f"{home_stats}\n\n"
+            f"{away_stats}\n\n"
+            f"{h2h}\n\n"
+            f"{predictions_text}\n\n"
+            f"{confidence_explanation}"
         )
         
         return formatted_text
