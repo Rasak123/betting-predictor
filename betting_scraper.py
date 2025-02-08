@@ -13,7 +13,7 @@ LEAGUES = {
         'id': 39,
         'name': 'Premier League',
         'country': 'England',
-        'season': 2023  # Current season is 2023/2024
+        'season': 2024  # 2024/2025 season
     }
 }
 
@@ -134,8 +134,8 @@ class BettingScraper:
         
         try:
             # Calculate date range
-            # Use 2024 dates since we're querying the 2023/24 season
-            today = datetime(2024, 3, 2)  # Use March date to get upcoming matches
+            # We're in 2025 and querying the 2024/25 season
+            today = datetime.now()  # Use current date since we're in the correct season now
             end_date = today + timedelta(days=days_ahead)
             
             # Format dates for API

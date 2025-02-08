@@ -3,10 +3,6 @@ from betting_scraper import BettingScraper
 from dotenv import load_dotenv
 from datetime import datetime
 
-def get_test_date():
-    """Get a date in the current Premier League season"""
-    return datetime(2024, 2, 8)  # Use February 2024 for testing
-
 def main():
     # Configure logging
     logging.basicConfig(
@@ -15,7 +11,7 @@ def main():
     )
     logger = logging.getLogger(__name__)
 
-    # Initialize scraper with test date
+    # Initialize scraper
     scraper = BettingScraper()
     
     # Test only Premier League
@@ -26,10 +22,6 @@ def main():
         logger.info("API Configuration:")
         logger.info(f"Base URL: {scraper.base_url}")
         logger.info(f"Headers present: {'x-rapidapi-key' in scraper.headers}")
-        
-        # Override current time for testing
-        current_time = get_test_date()
-        logger.info(f"Using test date: {current_time.strftime('%Y-%m-%d')}")
         
         matches = scraper.get_matches(league_keys)
         if matches:
