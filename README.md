@@ -1,6 +1,6 @@
 # Betting Match Predictor
 
-This Python script allows you to scrape betting odds and match information from betting websites for analysis and prediction purposes.
+A comprehensive football match prediction system that uses statistical analysis to predict match outcomes, scores, and other betting markets.
 
 ## Setup
 
@@ -46,13 +46,31 @@ python telegram_bot.py
 - `/predictions` - Get predictions for upcoming matches
 - `/help` - Show help message
 
+## Project Structure
+
+The project has been organized into a modular structure for better maintainability:
+
+```
+betting/
+  ├── __init__.py         # Package initialization
+  ├── api_client.py       # Football API client
+  ├── models.py           # Data models for teams, matches, predictions
+  ├── predictor.py        # Match prediction algorithms
+  ├── main.py             # Main prediction functionality
+  └── telegram_bot.py     # Telegram bot implementation
+main.py                   # Application entry point
+requirements.txt          # Project dependencies
+```
+
 ## Features
 
-- Web scraping with rate limiting and user agent spoofing
-- Data extraction for match details and odds
-- CSV export functionality
-- Error handling and logging
-- Telegram bot integration for easy access to predictions
+- Modular, maintainable code structure
+- Statistical analysis of team performance and head-to-head records
+- Multiple prediction markets (match outcome, score, over/under, BTTS, first half)
+- Confidence ratings for predictions
+- Enhanced Telegram bot with natural language understanding
+- Support for multiple football leagues
+- Comprehensive error handling and logging
 
 ## Important Notes
 
