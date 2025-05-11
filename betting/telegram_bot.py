@@ -239,9 +239,9 @@ def run_bot() -> None:
         load_dotenv()
         token = os.getenv('TELEGRAM_BOT_TOKEN')
         
-        # If no token found in environment, use the hardcoded one for testing
+        # Check if token is available
         if not token:
-            token = '7769015532:AAHD5kETpBuZp8cRXefTOjciPOuEkJBcAF0'  # Hardcoded for testing only
+            raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables")
             
         # Create updater and dispatcher
         updater = Updater(token=token, use_context=True)
