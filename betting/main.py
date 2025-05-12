@@ -3,7 +3,7 @@ import logging
 from typing import Dict, List, Any
 from datetime import datetime
 from .predictor import MatchPredictor
-from .enhanced_predictor import EnhancedMatchPredictor
+from .fixed_enhanced_predictor import EnhancedMatchPredictor
 from .models import Prediction
 
 # Configure logging
