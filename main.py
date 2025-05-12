@@ -78,12 +78,21 @@ def main():
     parser = argparse.ArgumentParser(description='Football Betting Predictor')
     parser.add_argument('--mode', choices=['predictions', 'bot', 'show-bot'], default='predictions',
                         help='Run mode: predictions (default), bot, or show-bot')
+    parser.add_argument('--predictor', choices=['standard', 'enhanced'], default='enhanced',
+                        help='Predictor model to use: standard or enhanced (default)')
     args = parser.parse_args()
     
     try:
+        # Determine whether to use the enhanced predictor
+        use_enhanced = args.predictor == 'enhanced'
+        
         if args.mode == 'predictions':
             logger.info("Running in predictions mode")
-            run_predictions()
+            if use_enhanced:
+                logger.info("Using enhanced predictor with improved statistical models")
+            else:
+                logger.info("Using standard predictor")
+            run_predictions(use_enhanced=use_enhanced)
         elif args.mode == 'bot':
             logger.info("Running in bot mode")
             run_bot()

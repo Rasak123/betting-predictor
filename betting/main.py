@@ -3,6 +3,7 @@ import logging
 from typing import Dict, List, Any
 from datetime import datetime
 from .predictor import MatchPredictor
+from .enhanced_predictor import EnhancedMatchPredictor
 from .models import Prediction
 
 # Configure logging
@@ -52,16 +53,26 @@ LEAGUES = {
     }
 }
 
-def analyze_weekend_matches(leagues: Dict[str, Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """Analyze matches for the upcoming weekend across specified leagues"""
+def analyze_weekend_matches(leagues: Dict[str, Dict[str, Any]] = None, use_enhanced: bool = True) -> List[Dict[str, Any]]:
+    """Analyze matches for the upcoming weekend across specified leagues
+    
+    Args:
+        leagues: Dictionary of leagues to analyze
+        use_enhanced: Whether to use the enhanced predictor with improved statistical models
+    """
     try:
         if leagues is None:
             leagues = LEAGUES
             
         logger.info(f"Analyzing upcoming matches for {len(leagues)} leagues")
         
-        # Initialize predictor
-        predictor = MatchPredictor()
+        # Initialize predictor - use enhanced version by default
+        if use_enhanced:
+            logger.info("Using enhanced predictor with improved statistical models")
+            predictor = EnhancedMatchPredictor()
+        else:
+            logger.info("Using standard predictor")
+            predictor = MatchPredictor()
         
         # Get upcoming matches
         matches = predictor.get_upcoming_matches(leagues, days_ahead=7)
@@ -149,11 +160,15 @@ def print_predictions_summary(predictions: List[Dict[str, Any]]) -> None:
             logger.error(f"Error printing prediction: {str(e)}")
             continue
 
-def run_predictions() -> List[Dict[str, Any]]:
-    """Run the prediction process and return results"""
+def run_predictions(use_enhanced: bool = True) -> List[Dict[str, Any]]:
+    """Run the prediction process and return results
+    
+    Args:
+        use_enhanced: Whether to use the enhanced predictor with improved statistical models
+    """
     try:
-        # Analyze matches
-        results = analyze_weekend_matches()
+        # Analyze matches using the specified predictor
+        results = analyze_weekend_matches(use_enhanced=use_enhanced)
         
         if results:
             # Save results to file
