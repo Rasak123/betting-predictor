@@ -237,72 +237,206 @@ class MatchPredictor:
         }
     
     def predict_score(self, home_stats: TeamStats, away_stats: TeamStats, h2h_stats: HeadToHeadStats) -> Tuple[float, float, float]:
-        """Predict match score based on team stats and head-to-head history"""
-        # Calculate expected goals
-        home_expected_goals = home_stats.avg_goals_scored * 0.6 + away_stats.avg_goals_conceded * 0.4
-        away_expected_goals = away_stats.avg_goals_scored * 0.6 + home_stats.avg_goals_conceded * 0.4
-        
-        # Adjust for home advantage
-        home_expected_goals *= 1.1
-        away_expected_goals *= 0.9
-        
-        # Adjust based on H2H history
-        if h2h_stats and h2h_stats.total_matches > 0:
-            # Calculate H2H goal averages
-            h2h_home_goals = 0
-            h2h_away_goals = 0
-            h2h_matches_count = 0
+        """Predict match score based on team stats and head-to-head history with enhanced statistical models"""
+        try:
+            import math
+            from scipy.stats import poisson
+            use_poisson = True
+        except ImportError:
+            self.logger.warning("scipy not available, using simplified score prediction")
+            use_poisson = False
             
-            for match in h2h_stats.matches:
-                if match.home_score is None or match.away_score is None:
-                    continue
-                    
-                if match.home_team.id == home_stats.team_id:
-                    h2h_home_goals += match.home_score
-                    h2h_away_goals += match.away_score
-                else:
-                    h2h_home_goals += match.away_score
-                    h2h_away_goals += match.home_score
-                    
-                h2h_matches_count += 1
+        # Base expected goals calculation with more weight on recent performance
+        home_expected_goals = home_stats.avg_goals_scored * 0.65 + away_stats.avg_goals_conceded * 0.35
+        away_expected_goals = away_stats.avg_goals_scored * 0.65 + home_stats.avg_goals_conceded * 0.35
+        
+        # Adjust for home advantage - home teams typically score more and concede less
+        home_expected_goals *= 1.25
+        away_expected_goals *= 0.8
+    
+    # Apply form adjustment - recent form matters more
+    if home_stats.form and len(home_stats.form) >= 5:
+        home_form_factor = self.calculate_form_factor(home_stats.form[-5:])
+        home_expected_goals *= home_form_factor
+    
+    if away_stats.form and len(away_stats.form) >= 5:
+        away_form_factor = self.calculate_form_factor(away_stats.form[-5:])
+        away_expected_goals *= away_form_factor
+    
+    # Adjust for home advantage - typically home teams score ~35% more
+    home_expected_goals *= 1.2
+    away_expected_goals *= 0.85
+    
+    # Adjust based on H2H history with recency weighting
+    if h2h_stats and h2h_stats.total_matches > 0:
+        h2h_home_goals = 0
+        h2h_away_goals = 0
+        h2h_weights_sum = 0
+        
+        # Sort matches by date, most recent first
+        recent_matches = sorted(
+            [m for m in h2h_stats.matches if m.home_score is not None and m.away_score is not None],
+            key=lambda m: m.date if m.date else datetime.min,
+            reverse=True
+        )
+        
+        # Apply recency weighting - more recent matches have higher weight
+        for i, match in enumerate(recent_matches[:5]):  # Consider only last 5 H2H matches
+            # Exponential decay weight - most recent match has weight 1.0
+            weight = math.exp(-0.3 * i)  # Decay factor of 0.3
             
-            if h2h_matches_count > 0:
-                h2h_home_avg = h2h_home_goals / h2h_matches_count
-                h2h_away_avg = h2h_away_goals / h2h_matches_count
+            if match.home_team.id == home_stats.team_id:
+                h2h_home_goals += match.home_score * weight
+                h2h_away_goals += match.away_score * weight
+            else:
+                h2h_home_goals += match.away_score * weight
+                h2h_away_goals += match.home_score * weight
                 
-                # Blend current form with H2H history
-                home_expected_goals = home_expected_goals * 0.7 + h2h_home_avg * 0.3
-                away_expected_goals = away_expected_goals * 0.7 + h2h_away_avg * 0.3
+            h2h_weights_sum += weight
         
-        # Calculate confidence based on data quality
-        confidence_factors = []
+        if h2h_weights_sum > 0:
+            h2h_home_avg = h2h_home_goals / h2h_weights_sum
+            h2h_away_avg = h2h_away_goals / h2h_weights_sum
+            
+            # Blend current model with H2H history - H2H gets more weight if teams play often
+            h2h_weight = min(0.4, 0.1 * min(h2h_stats.total_matches, 4))
+            home_expected_goals = home_expected_goals * (1 - h2h_weight) + h2h_home_avg * h2h_weight
+            away_expected_goals = away_expected_goals * (1 - h2h_weight) + h2h_away_avg * h2h_weight
+    
+    # Adjust for team motivation factors (e.g., fighting relegation, title race)
+    # This would require additional data, but the framework is here
+    
+    # Consider defensive solidity for low-scoring predictions
+    if home_stats.clean_sheets / max(1, home_stats.matches_played) > 0.4:
+        away_expected_goals *= 0.9
+    if away_stats.clean_sheets / max(1, away_stats.matches_played) > 0.4:
+        home_expected_goals *= 0.9
+    
+    # Consider scoring consistency
+    home_scoring_consistency = 1 - (home_stats.failed_to_score / max(1, home_stats.matches_played))
+    away_scoring_consistency = 1 - (away_stats.failed_to_score / max(1, away_stats.matches_played))
+    
+    home_expected_goals *= max(0.8, home_scoring_consistency)
+    away_expected_goals *= max(0.8, away_scoring_consistency)
+    
+    # Calculate most likely score using Poisson distribution
+    max_goals = 5  # Consider scores up to 5-5
+    max_probability = 0
+    most_likely_home_score = round(home_expected_goals)
+    most_likely_away_score = round(away_expected_goals)
+    
+    # Find the most likely exact score
+    for h in range(max_goals + 1):
+        for a in range(max_goals + 1):
+            p_home = poisson.pmf(h, home_expected_goals)
+            p_away = poisson.pmf(a, away_expected_goals)
+            probability = p_home * p_away
+            
+            if probability > max_probability:
+                max_probability = probability
+                most_likely_home_score = h
+                most_likely_away_score = a
+    
+    # Calculate confidence based on multiple factors
+    confidence_factors = []
+    
+    # Data quality factors
+    if home_stats.matches_played >= 15 and away_stats.matches_played >= 15:
+        confidence_factors.append(1.0)
+    elif home_stats.matches_played >= 10 and away_stats.matches_played >= 10:
+        confidence_factors.append(0.9)
+    elif home_stats.matches_played >= 5 and away_stats.matches_played >= 5:
+        confidence_factors.append(0.7)
+    else:
+        confidence_factors.append(0.5)
+    
+    # H2H data quality
+    if h2h_stats and h2h_stats.total_matches >= 5:
+        confidence_factors.append(1.0)
+    elif h2h_stats and h2h_stats.total_matches >= 3:
+        confidence_factors.append(0.85)
+    elif h2h_stats and h2h_stats.total_matches >= 1:
+        confidence_factors.append(0.7)
+    else:
+        confidence_factors.append(0.6)
+    
+    # Form consistency factor
+    if home_stats.form and away_stats.form:
+        home_form_consistency = self.calculate_form_consistency(home_stats.form)
+        away_form_consistency = self.calculate_form_consistency(away_stats.form)
+        avg_form_consistency = (home_form_consistency + away_form_consistency) / 2
+        confidence_factors.append(avg_form_consistency)
+    
+    # Calculate overall confidence - weighted average
+    weights = [0.4, 0.3, 0.3]  # Matches played, H2H data, Form consistency
+    confidence = sum(f * w for f, w in zip(confidence_factors, weights)) / sum(weights)
+    
+    # Return the expected goals for advanced analysis, but also the most likely score
+    self.most_likely_score = (most_likely_home_score, most_likely_away_score)
+    
+    return home_expected_goals, away_expected_goals, confidence
+
+def league_avg_home_goals() -> float:
+    """Return the average number of goals scored by home teams in the league"""
+    # This would ideally be calculated from league data
+    # For now, using typical values from top European leagues
+    return 1.5
+
+def league_avg_away_goals() -> float:
+    """Return the average number of goals scored by away teams in the league"""
+    # This would ideally be calculated from league data
+    return 1.2
+
+def league_avg_home_conceded() -> float:
+    """Return the average number of goals conceded by home teams"""
+    return 1.2
+
+def league_avg_away_conceded() -> float:
+    """Return the average number of goals conceded by away teams"""
+    return 1.5
+
+def calculate_form_factor(self, form_string: str) -> float:
+    """Calculate a form factor from recent results"""
+    if not form_string:
+        return 1.0
         
-        # More matches played = higher confidence
-        if home_stats.matches_played >= 10 and away_stats.matches_played >= 10:
-            confidence_factors.append(1.0)
-        elif home_stats.matches_played >= 5 and away_stats.matches_played >= 5:
-            confidence_factors.append(0.8)
-        else:
-            confidence_factors.append(0.6)
+    # Weight recent matches more heavily with exponential decay
+    total_weight = 0
+    form_value = 0
+    
+    for i, result in enumerate(reversed(form_string)):
+        weight = math.exp(-0.2 * i)  # More recent matches have higher weight
+        total_weight += weight
         
-        # More H2H matches = higher confidence
-        if h2h_stats and h2h_stats.total_matches >= 5:
-            confidence_factors.append(1.0)
-        elif h2h_stats and h2h_stats.total_matches >= 2:
-            confidence_factors.append(0.8)
-        else:
-            confidence_factors.append(0.6)
-        
-        # Calculate overall confidence
-        confidence = sum(confidence_factors) / len(confidence_factors)
-        
-        return home_expected_goals, away_expected_goals, confidence
+        if result == 'W':
+            form_value += 1.2 * weight  # Win boosts expected goals
+        elif result == 'D':
+            form_value += 1.0 * weight  # Draw is neutral
+        elif result == 'L':
+            form_value += 0.8 * weight  # Loss reduces expected goals
+    
+    return form_value / total_weight if total_weight > 0 else 1.0
+
+def calculate_form_consistency(self, form_string: str) -> float:
+        """Calculate how consistent a team's form has been"""
+        if not form_string or len(form_string) < 3:
+            return 0.7  # Default medium confidence with limited data
+            
+        # Count transitions (changes in form)
+        transitions = 0
+        for i in range(1, len(form_string)):
+            if form_string[i] != form_string[i-1]:
+                transitions += 1
+                
+        # More transitions = less consistency = lower confidence
+        consistency = 1.0 - (transitions / (len(form_string) - 1)) * 0.5
+        return max(0.5, min(1.0, consistency))  # Bound between 0.5 and 1.0
     
     def predict_match_outcome(self, home_stats: TeamStats, away_stats: TeamStats, h2h_stats: HeadToHeadStats) -> Dict[str, Any]:
         """Predict match outcome (home win, draw, away win)"""
         # Calculate form points
         home_form_points = self.calculate_form_points(home_stats.form)
-        away_form_points = self.calculate_form_points(away_stats.form)
+{{ ... }}
         
         # Calculate home advantage
         home_advantage = 0.1

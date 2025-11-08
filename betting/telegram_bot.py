@@ -1,13 +1,24 @@
 import logging
 
-# Handle Python 3.13 compatibility (imghdr module removed)
+# Handle Python compatibility issues
 try:
+    # Fix for missing urllib3.contrib.appengine
+    import urllib3.contrib
+    if not hasattr(urllib3.contrib, 'appengine'):
+        urllib3.contrib.appengine = type('module', (), {})
+        urllib3.contrib.appengine.is_appengine_sandbox = lambda: False
+        urllib3.contrib.appengine.is_local_appengine = lambda: False
+        urllib3.contrib.appengine.is_prod_appengine = lambda: False
+        urllib3.contrib.appengine.is_prod_appengine_mvms = lambda: False
+    
+    # Now try to import telegram
     from telegram import Update, ParseMode
     from telegram.ext import Updater, CommandHandler, CallbackContext, MessageHandler, Filters
     from telegram.error import TelegramError
     TELEGRAM_AVAILABLE = True
+    logging.info("Successfully imported Telegram modules")
 except ImportError as e:
-    # For Python 3.13+
+    # For Python 3.13+ or other import issues
     logging.warning(f"Telegram import error: {e}")
     logging.warning("Using placeholder classes for Telegram functionality")
     

@@ -424,20 +424,22 @@ class EnhancedMatchPredictor:
         
         return home_expected_goals, away_expected_goals, confidence
     
-    def predict_match(self, match: Match) -> Optional[Prediction]:
-        """Make a comprehensive prediction for a match using enhanced statistical models"""
-        try:
-            self.logger.info(f"Predicting match: {match.home_team.name} vs {match.away_team.name}")
             
-            # Get team statistics
-            home_stats = self.get_team_stats(match.home_team.id, match.league_id, match.date.year)
-            away_stats = self.get_team_stats(match.away_team.id, match.league_id, match.date.year)
+            # Team defensive records
+            home_clean_sheet_rate = home_stats.clean_sheets / max(1, home_stats.matches_played)
+            away_clean_sheet_rate = away_stats.clean_sheets / max(1, away_stats.matches_played)
             
-            if not home_stats or not away_stats:
-                self.logger.error("Failed to get team statistics")
-                return None
+            # Adjust probability based on these factors
+            if home_scoring_rate < 0.5 and away_scoring_rate < 0.5:
+                probability -= 0.1  # Both teams struggle to score
+            elif home_scoring_rate > 0.8 and away_scoring_rate > 0.8:
+                probability += 0.1  # Both teams score consistently
+                
+            if home_clean_sheet_rate > 0.4 and away_clean_sheet_rate > 0.4:
+                probability -= 0.1  # Both teams have solid defense
             
-            # Get head-to-head statistics
+            # Ensure probability is between 0 and 1
+            probability = max(0.0, min(1.0, probability))
             h2h_stats = self.get_h2h_stats(match.home_team.id, match.away_team.id)
             
             # Predict score
