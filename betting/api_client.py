@@ -12,17 +12,18 @@ class FootballApiClient:
         # Load environment variables
         load_dotenv()
         
-        # Get API key - try both environment variable names
-        self.api_key = os.getenv('API_KEY') or os.getenv('RAPIDAPI_KEY')
+        # Get API key - try multiple environment variable names for compatibility
+        self.api_key = os.getenv('FOOTBALL_API_KEY') or os.getenv('RAPIDAPI_KEY') or os.getenv('API_KEY')
         
         # Check if API key is available
         if not self.api_key:
-            raise ValueError("No API key found. Set either API_KEY or RAPIDAPI_KEY in your .env file")
+            raise ValueError("No API key found. Please set FOOTBALL_API_KEY in your .env file")
             
-        self.base_url = "https://api-football-v1.p.rapidapi.com/v3"
+        self.base_url = "https://v3.football.api-sports.io"
         self.headers = {
-            'x-rapidapi-host': "api-football-v1.p.rapidapi.com",
-            'x-rapidapi-key': self.api_key
+            'x-rapidapi-host': "v3.football.api-sports.io",
+            'x-rapidapi-key': self.api_key,
+            'Content-Type': 'application/json'
         }
         
         # Set up logging
