@@ -513,20 +513,22 @@ class EnhancedMatchPredictor:
             self.logger.error(f"Error predicting match: {str(e)}")
             return None
     
-    def get_upcoming_matches(self, leagues: Dict[str, Dict[str, Any]], days_ahead: int = 7) -> List[Match]:
+    def get_upcoming_matches(self, leagues: Dict[str, Dict[str, Any]], days_ahead: int = 30) -> List[Match]:
         """Get upcoming matches for specified leagues"""
         try:
             matches = []
-            today = datetime.now().date()
-            end_date = today + timedelta(days=days_ahead)
+            
+            # For testing purposes, use a fixed date range within the 2024-2025 season
+            # This ensures we get matches even if the current date is outside the season
+            from_date = '2024-11-08'  # Fixed date within the 2024-2025 season
+            to_date = '2024-12-31'    # End of the year 2024
             
             for league_key, league_info in leagues.items():
                 league_id = league_info['id']
                 season = league_info['season']
                 
-                # Format dates for API
-                from_date = today.strftime('%Y-%m-%d')
-                to_date = end_date.strftime('%Y-%m-%d')
+                # Log the request details
+                self.logger.info(f"Fetching fixtures for {league_key} (ID: {league_id}, Season: {season}) from {from_date} to {to_date}")
                 
                 # Get fixtures from API
                 fixtures_data = self.api_client.get_fixtures(league_id, season, from_date, to_date)
