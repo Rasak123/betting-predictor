@@ -94,14 +94,23 @@ class TeamStats:
 @dataclass
 class HeadToHeadStats:
     """Represents head-to-head statistics between two teams"""
-    team1_id: int
-    team2_id: int
+    team1_id: int = 0
+    team2_id: int = 0
     total_matches: int = 0
-    team1_wins: int = 0
-    team2_wins: int = 0
+    home_wins: int = 0
+    away_wins: int = 0
     draws: int = 0
+    goals_for: int = 0
+    goals_against: int = 0
     avg_goals: float = 0.0
     matches: List[Match] = field(default_factory=list)
+    
+    def __post_init__(self):
+        # For backward compatibility
+        if hasattr(self, 'team1_wins') and not hasattr(self, 'home_wins'):
+            self.home_wins = self.team1_wins
+        if hasattr(self, 'team2_wins') and not hasattr(self, 'away_wins'):
+            self.away_wins = self.team2_wins
 
 @dataclass
 class Prediction:

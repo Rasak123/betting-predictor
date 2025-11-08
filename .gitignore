@@ -23,9 +23,24 @@ python*_installer.exe
 *.sqlite3
 .DS_Store
 
-# Virtual Environment
+# Virtual Environments
 venv/
 venv311/
+venv312/
+venv312_simple/
+
+# Backup files
+*.bak
+*_backup.py
+*_backup_*.py
+predictor_backup*
+
+# Local environment files
+.env.local
+
+# Text files
+*.txt
+!requirements.txt
 
 # Predictions output
 predictions.json

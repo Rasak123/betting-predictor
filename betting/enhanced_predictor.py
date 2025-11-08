@@ -423,26 +423,47 @@ class EnhancedMatchPredictor:
         confidence = sum(f * w for f, w in zip(confidence_factors, weights)) / sum(weights)
         
         return home_expected_goals, away_expected_goals, confidence
-    
+
+    def predict_match(self, home_stats: TeamStats, away_stats: TeamStats, h2h_stats: HeadToHeadStats) -> Optional[Prediction]:
+        """Predict the outcome of a match using enhanced statistical models"""
+        try:
+            # Calculate expected goals for both teams
+            home_goals, away_goals, confidence = self.calculate_expected_goals(home_stats, away_stats, h2h_stats)
             
-            # Team defensive records
+            # Determine match outcome based on expected goals
+            if home_goals > away_goals + 0.5:  # Home win
+                winner = "home"
+            elif away_goals > home_goals + 0.5:  # Away win
+                winner = "away"
+            else:  # Draw
+                winner = "draw"
+            
+            # Calculate clean sheet probability
             home_clean_sheet_rate = home_stats.clean_sheets / max(1, home_stats.matches_played)
             away_clean_sheet_rate = away_stats.clean_sheets / max(1, away_stats.matches_played)
             
-            # Adjust probability based on these factors
-            if home_scoring_rate < 0.5 and away_scoring_rate < 0.5:
-                probability -= 0.1  # Both teams struggle to score
-            elif home_scoring_rate > 0.8 and away_scoring_rate > 0.8:
-                probability += 0.1  # Both teams score consistently
-                
+            # Adjust confidence based on clean sheet rates
             if home_clean_sheet_rate > 0.4 and away_clean_sheet_rate > 0.4:
-                probability -= 0.1  # Both teams have solid defense
+                confidence = min(confidence * 1.1, 1.0)  # Increase confidence if both teams have solid defense
             
-            # Ensure probability is between 0 and 1
-            probability = max(0.0, min(1.0, probability))
-            h2h_stats = self.get_h2h_stats(match.home_team.id, match.away_team.id)
+            # Ensure confidence is between 0 and 1
+            confidence = max(0.0, min(1.0, confidence))
             
-            # Predict score
+            # Create and return prediction
+            prediction = Prediction(
+                home_team=home_stats.team_name,
+                away_team=away_stats.team_name,
+                home_goals=round(home_goals, 1),
+                away_goals=round(away_goals, 1),
+                winner=winner,
+                confidence=round(confidence * 100, 1)  # Convert to percentage
+            )
+            
+            return prediction
+            
+        except Exception as e:
+            self.logger.error(f"Error predicting match: {str(e)}")
+            return None
             home_expected_goals, away_expected_goals, score_confidence = self.predict_score(home_stats, away_stats, h2h_stats)
             
             # Get the most likely score from the score prediction
