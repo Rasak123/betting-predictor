@@ -1,17 +1,24 @@
 import logging
 import argparse
+import sys
 from betting.main import run_predictions
 
-# Handle Python 3.13 compatibility issues
-try:
-    from betting.telegram_bot import run_bot
-except ImportError as e:
-    if 'imghdr' in str(e):
-        logging.warning("Telegram bot functionality not available due to Python 3.13 compatibility issues.")
-        # Define a placeholder function
-        def run_bot():
-            print("Telegram bot functionality is not available with Python 3.13.")
-            print("Please use Python 3.10-3.12 for full functionality.")
+# Use the Python 3.13 compatible bot
+from betting.telegram_bot_313 import run_bot
+
+def check_python_version():
+    """Check if Python version is 3.13 or higher"""
+    if sys.version_info >= (3, 13):
+        logging.warning("Python 3.13+ detected. Using compatibility mode.")
+        return True
+    return False
+
+# Set up logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Configure logging
 logging.basicConfig(
