@@ -271,8 +271,8 @@ class EnhancedMatchPredictor:
             self.logger.error(f"Error calculating expected goals: {str(e)}")
             return 1.5, 1.0, 0.5  # Default values in case of error
     
-    def predict_match(self, home_stats: TeamStats, away_stats: TeamStats, h2h_stats: HeadToHeadStats) -> Optional[Prediction]:
-        """Predict the outcome of a match"""
+    def predict_from_stats(self, home_stats: TeamStats, away_stats: TeamStats, h2h_stats: HeadToHeadStats) -> Optional[Prediction]:
+        """Predict the outcome using pre-fetched stats"""
         try:
             # Calculate expected goals
             home_goals, away_goals, confidence = self.calculate_expected_goals(home_stats, away_stats, h2h_stats)
@@ -395,7 +395,7 @@ class EnhancedMatchPredictor:
                     h2h_stats = self.get_h2h_stats(match.home_team.id, match.away_team.id)
                     
                     # Generate prediction
-                    prediction = self.predict_match(home_stats, away_stats, h2h_stats)
+                    prediction = self.predict_from_stats(home_stats, away_stats, h2h_stats)
                     
                     if prediction:
                         predictions.append(prediction)
@@ -408,3 +408,25 @@ class EnhancedMatchPredictor:
         except Exception as e:
             self.logger.error(f"Error predicting upcoming matches: {str(e)}")
             return []
+
+    def predict_match(self, match: Match) -> Optional[Prediction]:
+        """Predict a match using match metadata (interface used by main analyzer)"""
+        try:
+            season = match.season or datetime.now().year
+            home_stats = self.get_team_stats(match.home_team.id, match.league_id, season)
+            away_stats = self.get_team_stats(match.away_team.id, match.league_id, season)
+            
+            if not home_stats or not away_stats:
+                self.logger.warning(
+                    "Missing stats for match %s vs %s", match.home_team.name, match.away_team.name
+                )
+                return None
+            
+            h2h_stats = self.get_h2h_stats(match.home_team.id, match.away_team.id)
+            prediction = self.predict_from_stats(home_stats, away_stats, h2h_stats)
+            return prediction
+        except Exception as e:
+            self.logger.error(
+                f"Error predicting match {match.home_team.name} vs {match.away_team.name}: {str(e)}"
+            )
+            return None

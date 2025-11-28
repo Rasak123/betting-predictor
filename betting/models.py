@@ -36,6 +36,7 @@ class Match:
     league_name: str
     country: str
     status: str
+    season: Optional[int] = None
     home_score: Optional[int] = None
     away_score: Optional[int] = None
     
@@ -64,6 +65,7 @@ class Match:
             league_name=league.get('name'),
             country=league.get('country'),
             status=fixture.get('status', {}).get('short'),
+            season=league.get('season'),
             home_score=goals.get('home'),
             away_score=goals.get('away')
         )
