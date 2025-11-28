@@ -13,42 +13,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constants
+# Constants - Only Premier League for now
 LEAGUES = {
     'premier_league': {
         'id': 39,
         'name': 'Premier League',
         'country': 'England',
-        'season': 2025
-    },
-    'la_liga': {
-        'id': 140,
-        'name': 'La Liga',
-        'country': 'Spain',
-        'season': 2025
-    },
-    'bundesliga': {
-        'id': 78,
-        'name': 'Bundesliga',
-        'country': 'Germany',
-        'season': 2025
-    },
-    'serie_a': {
-        'id': 135,
-        'name': 'Serie A',
-        'country': 'Italy',
-        'season': 2025
-    },
-    'ligue_1': {
-        'id': 61,
-        'name': 'Ligue 1',
-        'country': 'France',
-        'season': 2025
-    },
-    'champions_league': {
-        'id': 2,
-        'name': 'UEFA Champions League',
-        'country': 'Europe',
         'season': 2025
     }
 }

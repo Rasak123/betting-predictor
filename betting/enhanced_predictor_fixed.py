@@ -349,26 +349,38 @@ class EnhancedMatchPredictor:
             from_date = saturday.strftime('%Y-%m-%d')
             to_date = sunday.strftime('%Y-%m-%d')
             
-            for league_key, league_info in leagues.items():
-                league_id = league_info['id']
-                season = league_info['season']
-                
-                # Log the request details
-                self.logger.info(f"Fetching fixtures for {league_key} (ID: {league_id}, Season: {season}) from {from_date} to {to_date}")
-                
-                # Get fixtures from API
-                fixtures_data = self.api_client.get_fixtures(league_id, season, from_date, to_date)
-                
-                if not fixtures_data or 'response' not in fixtures_data:
-                    self.logger.error(f"Failed to get fixtures for league {league_key}")
-                    continue
-                
-                # Process each fixture
-                for fixture_data in fixtures_data['response']:
-                    match = Match.from_api(fixture_data)
-                    if match:
-                        matches.append(match)
+            self.logger.info(f"Fetching Premier League matches from {from_date} to {to_date}")
             
+            # Only process Premier League
+            league_key = 'premier_league'
+            league_info = leagues.get(league_key)
+            if not league_info:
+                self.logger.error("Premier League configuration not found")
+                return []
+                
+            league_id = league_info['id']
+            season = league_info['season']
+            
+            # Log the request details
+            self.logger.info(f"Fetching fixtures for {league_key} (ID: {league_id}, Season: {season}) from {from_date} to {to_date}")
+            
+            # Get fixtures from API
+            fixtures_data = self.api_client.get_fixtures(league_id, season, from_date, to_date)
+            
+            if not fixtures_data or 'response' not in fixtures_data:
+                self.logger.error(f"Failed to get fixtures for league {league_key}")
+                return []
+            
+            self.logger.info(f"Found {len(fixtures_data['response'])} fixtures")
+            
+            # Process each fixture
+            for fixture_data in fixtures_data['response']:
+                match = Match.from_api(fixture_data)
+                if match:
+                    matches.append(match)
+                    self.logger.info(f"Added match: {match.home_team.name} vs {match.away_team.name}")
+            
+            self.logger.info(f"Total matches found: {len(matches)}")
             return matches
             
         except Exception as e:
