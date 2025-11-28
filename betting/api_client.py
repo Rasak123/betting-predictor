@@ -12,24 +12,12 @@ class FootballApiClient:
         # Set up logging first
         self.logger = logging.getLogger(__name__)
         
-        # Load environment variables from .env.local first, then .env
-        load_dotenv('.env.local')  # Try loading from .env.local first
-        load_dotenv()  # Fall back to .env if .env.local doesn't exist
-        
-        # Get API key - try multiple environment variable names for compatibility
+        # Get API key directly from environment
         self.api_key = os.getenv('FOOTBALL_API_KEY') or os.getenv('RAPIDAPI_KEY') or os.getenv('API_KEY')
-        
-        # Log which file was loaded (for debugging)
-        if os.path.exists('.env.local'):
-            self.logger.info("Loaded environment variables from .env.local")
-        elif os.path.exists('.env'):
-            self.logger.info("Loaded environment variables from .env")
-        else:
-            self.logger.warning("No .env or .env.local file found")
         
         # Check if API key is available
         if not self.api_key:
-            raise ValueError("No API key found. Please set FOOTBALL_API_KEY in your .env file")
+            raise ValueError("No API key found. Please set FOOTBALL_API_KEY environment variable")
             
         # For v3 API, we need to use the API-SPORTS endpoint
         self.base_url = "https://v3.football.api-sports.io"
@@ -94,37 +82,48 @@ class FootballApiClient:
                 self.logger.info(f"API Response Status: {response.status_code}")
                 
                 if response.status_code == 200:
-                    data = response.json()
+                    try:
+                        # Ensure response is properly decoded
+                        response.encoding = 'utf-8'
+                        data = response.json()
+                    except UnicodeDecodeError as e:
+                        self.logger.error(f"Unicode decode error: {e}")
+                        # Try to decode with different encoding
+                        try:
+                            response.encoding = 'latin-1'
+                            data = response.json()
+                        except Exception as e2:
+                            self.logger.error(f"Failed to decode with latin-1: {e2}")
+                            return None
+                    except ValueError as e:
+                        self.logger.error(f"JSON decode error: {e}")
+                        self.logger.error(f"Response content: {response.text[:500]}")
+                        return None
+                        
                     if 'errors' in data and data['errors'] and len(data['errors']) > 0:
                         self.logger.error(f"API returned errors: {data['errors']}")
                         return None
-                    if 'response' not in data:
-                        self.logger.error(f"Invalid API response format: {data}")
-                        return None
                     return data
-                
-                if response.status_code == 429:  # Rate limit
-                    retry_after = int(response.headers.get('Retry-After', 60))
-                    self.logger.warning(f"Rate limit hit. Retrying after {retry_after} seconds")
-                    time.sleep(retry_after)
-                    continue
-                
-                # Handle other error codes
-                response.raise_for_status()
-                
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"Request error on attempt {attempt+1}/{max_retries}: {str(e)}")
-                if hasattr(e, 'response') and e.response is not None:
-                    self.logger.error(f"Error Response: {e.response.text}")
-                
-                # Wait before retrying
-                wait_time = 2 ** attempt  # Exponential backoff
-                self.logger.info(f"Waiting {wait_time} seconds before retry")
-                time.sleep(wait_time)
-                
-                if attempt == max_retries - 1:  # Last attempt
-                    self.logger.error("Max retries reached. Giving up.")
+                elif response.status_code == 401:
+                    self.logger.error("Unauthorized: Check your API key")
                     return None
+                elif response.status_code == 403:
+                    self.logger.error("Forbidden: Check your subscription")
+                    return None
+                elif response.status_code == 429:
+                    self.logger.error("Rate limit exceeded. Waiting...")
+                    time.sleep(2 ** attempt)
+                    continue
+                else:
+                    self.logger.error(f"HTTP Error: {response.status_code} - {response.text}")
+                    return None
+                    
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"Request error: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return None
             
             except Exception as e:
                 self.logger.error(f"Unexpected error: {str(e)}")

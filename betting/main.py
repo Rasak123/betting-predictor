@@ -79,8 +79,8 @@ def analyze_weekend_matches(leagues: Dict[str, Dict[str, Any]] = None, use_enhan
 def save_predictions(predictions: List[Dict[str, Any]], output_file: str = 'predictions.json') -> bool:
     """Save predictions to a JSON file"""
     try:
-        with open(output_file, 'w') as f:
-            json.dump(predictions, f, indent=4)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(predictions, f, indent=4, ensure_ascii=False)
         logger.info(f"Predictions saved to {output_file}")
         return True
     except Exception as e:
