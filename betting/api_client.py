@@ -138,11 +138,12 @@ class FootballApiClient:
             # Build the endpoint with query parameters
             endpoint = f'fixtures?league={league_id}&season={season}'
             
-            # For the 2024-2025 season, use fixed date range to ensure we get matches
-            # This overrides any provided from_date and to_date parameters
-            if season == 2024:
-                from_date = '2024-11-08'  # Fixed date within the 2024-2025 season
-                to_date = '2024-12-31'    # End of the year 2024
+            # Ensure we always send a usable date window if none provided
+            if not from_date or not to_date:
+                # Default to the given season year (Aug-Dec) to pick up in-season fixtures
+                from_date = f"{season}-08-01"
+                to_year = season if season >= datetime.now().year else season
+                to_date = f"{to_year}-12-31"
             
             # Add date filters
             endpoint += f'&from={from_date}'

@@ -337,10 +337,17 @@ class EnhancedMatchPredictor:
         try:
             matches = []
             
-            # For testing purposes, use a fixed date range within the 2024-2025 season
-            # This ensures we get matches even if the current date is outside the season
-            from_date = '2024-11-08'  # Fixed date within the 2024-2025 season
-            to_date = '2024-12-31'    # End of the year 2024
+            # Calculate weekend dates (Saturday and Sunday)
+            today = datetime.now()
+            days_until_saturday = (5 - today.weekday()) % 7  # Saturday is weekday 5
+            days_until_sunday = (6 - today.weekday()) % 7    # Sunday is weekday 6
+            
+            saturday = today + timedelta(days=days_until_saturday if days_until_saturday > 0 else 7)
+            sunday = today + timedelta(days=days_until_sunday if days_until_sunday > 0 else 8)
+            
+            # Format dates for API
+            from_date = saturday.strftime('%Y-%m-%d')
+            to_date = sunday.strftime('%Y-%m-%d')
             
             for league_key, league_info in leagues.items():
                 league_id = league_info['id']
